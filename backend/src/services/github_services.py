@@ -94,5 +94,22 @@ def get_repo_files(installation_id, owner, repo):
             _file.append(file["path"])
     return _file
 
+def get_dependency_graph(installation_id, owner, repo):
+    token = get_access_token(installation_id)
+
+    url = f"https://api.github.com/repos/{owner}/{repo}/dependency-graph/sbom"
+
+    response = requests.get(
+        url,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json"
+        }
+    )
+
+    response.raise_for_status()
+
+    return response.json()
+
 if __name__ == "__main__":
     get_installation_id()
