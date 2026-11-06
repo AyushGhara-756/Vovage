@@ -3,3 +3,9 @@
 *.pyc
 /credentials
 test.py
+/generated_tests/
+/process_data/
+/openapi.json
+/statistics.csv
+/*.log
+/backend.pid

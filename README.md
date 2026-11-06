@@ -3,9 +3,67 @@
 
 ## Plan of architeccture:
 1. Fetch New merge request = GitHub Actions
-2. Schemathesis = test case generation
+2. EvoMaster + Noir = schema discovery and API fuzzing
 3. confirmation of all tests and verification = Berozgar engineer
 4. making a report = ReportLab (PDF)
+
+## CI: EvoMaster fuzzing
+
+The GitHub Actions workflow in `.github/workflows/evomaster.yml` fuzzes the
+Flask backend on every pull request, every push to `main`, and on manual
+dispatch.
+
+The pipeline:
+
+1. Installs Python dependencies and Noir.
+2. Generates an OpenAPI 3 schema from `backend/` with Noir.
+3. Starts `python -m backend` on `127.0.0.1:6050`.
+4. Runs EvoMaster in black-box mode against the live API.
+5. Fails the job on distinct 500 faults.
+6. Runs the Python unittest suite EvoMaster generated.
+7. Uploads the generated tests, statistics, schema, and logs as artifacts.
+
+### What is fuzzed
+
+The GitHub-dependent endpoints are excluded because they make real network
+calls and need GitHub App credentials:
+
+- `/api/analysis/scan`
+- `/api/structure/files`
+
+No GitHub App secrets are required for the workflow because those endpoints
+are excluded. The workflow therefore exercises the local API surface, currently
+`/api/test/` and `/api/analysis/health`. Update `endpointExclude` in `em.yaml`
+when the fuzzable surface changes.
+
+### Artifacts
+
+Each run uploads:
+
+- `generated_tests/` — EvoMaster's Python unittest suite and interactive report (`index.html`)
+- `statistics.csv` — coverage and fault metrics
+- `openapi.json` — Noir-generated schema
+- `evomaster.log`, `backend.log`, `noir.log`
+- `process_data/` when EvoMaster produces it
+
+### Run locally
+
+With the virtualenv active and Noir installed:
+
+```bash
+pip install -r requirements.txt -r requirements-test.txt
+./scripts/run_evomaster.sh
+```
+
+The default search budget is 120 seconds. Override it with `MAX_TIME`:
+
+```bash
+MAX_TIME=300s ./scripts/run_evomaster.sh
+```
+
+`em.yaml` holds the project defaults. `scripts/run_evomaster.sh` regenerates
+`openapi.json`, starts and stops the backend, runs EvoMaster, checks the fault
+statistics, and executes the generated tests.
 
 ## Noir analysis API
 
