@@ -108,8 +108,14 @@ def get_dependency_graph(installation_id, owner, repo):
     )
 
     response.raise_for_status()
+    sbom = response.json()
 
-    return response.json()
+    for package in sbom["sbom"]["packages"]:
+        name = package.get("name", "")
+        version = package.get("versionInfo", "unknown")
+
+        if name:
+            print(f"{name} : {version}")
 
 if __name__ == "__main__":
     get_installation_id()
