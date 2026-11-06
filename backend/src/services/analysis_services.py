@@ -17,35 +17,77 @@ EXCLUDED_DIRS = {
     "env",
 }
 
+SUPPORTED_METHODS = {
+    "GET",
+    "POST",
+    "PUT",
+    "PATCH",
+    "DELETE",
+    "HEAD",
+    "OPTIONS",
+}
 
-def _relative_path(path, repo_root):
-    try:
-        relative = os.path.relpath(path, repo_root)
-    except ValueError:
-        return path
-
-    relative = relative.replace(os.sep, "/")
-    if relative == ".." or relative.startswith("../"):
-        return path
-
-    return relative
+BODY_PARAM_TYPES = {"json", "form", "body"}
 
 
-def _normalize_endpoints(endpoints, repo_root):
-    for endpoint in endpoints:
-        handler = endpoint.get("handler")
-        if isinstance(handler, dict) and handler.get("path"):
-            handler["path"] = _relative_path(handler["path"], repo_root)
+def _to_api_endpoint(endpoint):
+    if not isinstance(endpoint, dict):
+        return None
 
-        details = endpoint.get("details")
-        if isinstance(details, dict):
-            for code_path in details.get("code_paths") or []:
-                if isinstance(code_path, dict) and code_path.get("path"):
-                    code_path["path"] = _relative_path(
-                        code_path["path"], repo_root
-                    )
+    url = endpoint.get("url")
+    method = endpoint.get("method")
 
-    return endpoints
+    if not isinstance(url, str) or not url:
+        return None
+
+    if not isinstance(method, str):
+        return None
+
+    method = method.upper()
+    if method not in SUPPORTED_METHODS:
+        return None
+
+    params = []
+    body = {}
+    seen_params = set()
+
+    for param in endpoint.get("params") or []:
+        if not isinstance(param, dict):
+            continue
+
+        name = param.get("name")
+        if not isinstance(name, str) or not name:
+            continue
+
+        param_type = param.get("param_type", "")
+        param_type = param_type.lower() if isinstance(param_type, str) else ""
+
+        if param_type in BODY_PARAM_TYPES:
+            value = param.get("value")
+            body[name] = "" if value is None else value
+            continue
+
+        if name not in seen_params:
+            seen_params.add(name)
+            params.append(name)
+
+    return {
+        "endpoint": url,
+        "method": method,
+        "params": params,
+        "body": body,
+    }
+
+
+def _map_endpoints(endpoints):
+    mapped = []
+
+    for endpoint in endpoints or []:
+        converted = _to_api_endpoint(endpoint)
+        if converted is not None:
+            mapped.append(converted)
+
+    return mapped
 
 
 def _collect_files(repo_root):
@@ -76,10 +118,7 @@ def analyze_repository(
         ref=ref,
     ) as repo_root:
         scan_result = run_noir_scan(repo_root, passive_scan=passive_scan)
-        endpoints = _normalize_endpoints(
-            scan_result.get("endpoints", []),
-            repo_root,
-        )
+        endpoints = _map_endpoints(scan_result.get("endpoints", []))
         files = _collect_files(repo_root)
 
     return {

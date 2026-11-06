@@ -1,4 +1,3 @@
-import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -7,45 +6,117 @@ from unittest.mock import Mock, patch
 from backend.src.services import noir_services
 from backend.src.services.analysis_services import (
     _collect_files,
-    _normalize_endpoints,
-    _relative_path,
+    _map_endpoints,
+    _to_api_endpoint,
 )
 
 
-class PathNormalizationTests(unittest.TestCase):
-    def test_relative_path_strips_repository_root(self):
-        root = os.path.abspath("/tmp/checkout")
+class EndpointMappingTests(unittest.TestCase):
+    def test_maps_query_and_path_params(self):
+        endpoint = {
+            "url": "/users/{id}",
+            "method": "GET",
+            "params": [
+                {"name": "id", "value": "", "param_type": "path"},
+                {"name": "verbose", "value": "", "param_type": "query"},
+            ],
+        }
 
         self.assertEqual(
-            _relative_path(os.path.join(root, "src", "app.py"), root),
-            "src/app.py",
+            _to_api_endpoint(endpoint),
+            {
+                "endpoint": "/users/{id}",
+                "method": "GET",
+                "params": ["id", "verbose"],
+                "body": {},
+            },
         )
 
-    def test_relative_path_rejects_escape(self):
-        root = os.path.abspath("/tmp/checkout")
-        outside = os.path.abspath("/tmp/other/app.py")
+    def test_maps_json_form_and_body_params(self):
+        endpoint = {
+            "url": "/users",
+            "method": "POST",
+            "params": [
+                {"name": "email", "value": "", "param_type": "json"},
+                {"name": "name", "value": "test", "param_type": "form"},
+                {"name": "note", "value": "hello", "param_type": "body"},
+            ],
+        }
 
-        self.assertEqual(_relative_path(outside, root), outside)
+        result = _to_api_endpoint(endpoint)
 
-    def test_normalize_endpoints_updates_handler_and_code_paths(self):
-        root = os.path.abspath("/tmp/checkout")
-        endpoints = [{
-            "handler": {
-                "path": os.path.join(root, "app.py"),
-            },
-            "details": {
-                "code_paths": [{
-                    "path": os.path.join(root, "routes.py"),
-                }],
-            },
-        }]
-
-        normalized = _normalize_endpoints(endpoints, root)
-
-        self.assertEqual(normalized[0]["handler"]["path"], "app.py")
+        self.assertEqual(result["params"], [])
         self.assertEqual(
-            normalized[0]["details"]["code_paths"][0]["path"],
-            "routes.py",
+            result["body"],
+            {
+                "email": "",
+                "name": "test",
+                "note": "hello",
+            },
+        )
+
+    def test_dedupes_params_and_ignores_non_body_duplicates(self):
+        endpoint = {
+            "url": "/users/{id}",
+            "method": "GET",
+            "params": [
+                {"name": "id", "value": "", "param_type": "path"},
+                {"name": "id", "value": "", "param_type": "query"},
+                {"name": "page", "value": "", "param_type": "query"},
+            ],
+        }
+
+        result = _to_api_endpoint(endpoint)
+
+        self.assertEqual(result["params"], ["id", "page"])
+
+    def test_accepts_patch_and_head(self):
+        for method in ("PATCH", "HEAD"):
+            endpoint = {
+                "url": "/users",
+                "method": method,
+                "params": [],
+            }
+
+            self.assertEqual(_to_api_endpoint(endpoint)["method"], method)
+
+    def test_uppercases_method(self):
+        endpoint = {
+            "url": "/users",
+            "method": "post",
+            "params": [],
+        }
+
+        self.assertEqual(_to_api_endpoint(endpoint)["method"], "POST")
+
+    def test_skips_unsupported_methods(self):
+        for method in ("QUERY", "SEND", "CLI", "TRACE"):
+            endpoint = {
+                "url": "/users",
+                "method": method,
+                "params": [],
+            }
+
+            self.assertIsNone(_to_api_endpoint(endpoint))
+
+    def test_skips_malformed_endpoints(self):
+        self.assertIsNone(_to_api_endpoint(None))
+        self.assertIsNone(_to_api_endpoint({}))
+        self.assertIsNone(_to_api_endpoint({"method": "GET"}))
+        self.assertIsNone(_to_api_endpoint({"url": "/users"}))
+
+    def test_map_endpoints_filters_unsupported_methods(self):
+        endpoints = [
+            {"url": "/get", "method": "GET", "params": []},
+            {"url": "/query", "method": "QUERY", "params": []},
+            {"url": "/post", "method": "POST", "params": []},
+        ]
+
+        mapped = _map_endpoints(endpoints)
+
+        self.assertEqual(
+            [endpoint["endpoint"] for endpoint in mapped],
+            ["/get", "/post"],
         )
 
     def test_collect_files_skips_excluded_directories(self):
