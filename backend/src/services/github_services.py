@@ -87,9 +87,12 @@ def get_repo_files(installation_id, owner, repo):
 
     files = response.json()["tree"]
 
+    _file = []
     for file in files:
         if file["type"] == "blob":
-            print(file["path"])
+            # print(file["path"])
+            _file.append(file["path"])
+    return _file
 
 if __name__ == "__main__":
     get_installation_id()
