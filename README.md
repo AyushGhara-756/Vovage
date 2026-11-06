@@ -1,4 +1,4 @@
-# Vovage
+# Voyage
 
 
 ## Plan of architeccture:
