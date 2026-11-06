@@ -65,22 +65,35 @@ repository-relative results. Temporary files are removed after the request.
   "files": ["README.md", "src/app.py"],
   "endpoints": [
     {
+      "endpoint": "/api/example/{id}",
       "method": "GET",
-      "url": "/api/example",
-      "handler": {
-        "name": "example",
-        "path": "src/routes/example.py",
-        "line": 10
-      },
+      "params": ["id", "verbose"],
+      "body": {}
+    },
+    {
+      "endpoint": "/api/example",
+      "method": "POST",
       "params": [],
-      "tags": [],
-      "technology": "python_flask"
+      "body": {
+        "name": "",
+        "email": ""
+      }
     }
   ],
   "passive_results": [],
   "errors": []
 }
 ```
+
+Each endpoint uses:
+
+- `endpoint` — the route URL
+- `method` — one of `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `HEAD`, `OPTIONS`
+- `params` — non-body parameter names (`query`, `path`, `header`, `cookie`)
+- `body` — `json`, `form`, and `body` parameters as `name -> value`
+
+Endpoints with methods outside the enum are skipped, and `endpoint_count`
+reflects only the returned endpoints.
 
 Status codes:
 
