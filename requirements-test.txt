@@ -1,2 +1,0 @@
-rfc3986==2.0.0
-timeout-decorator==0.5.0
