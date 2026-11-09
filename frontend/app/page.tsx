@@ -8,13 +8,24 @@ import {
 } from "react";
 import { Chrome, Ticker } from "./chrome";
 import {
+  fetchBudget,
   fetchFlightOptions,
   fetchStayOptions,
   predictFlight,
   predictStay,
+  searchAirports,
+  searchLiveFlights,
+  searchLiveStays,
+  type AirportHit,
+  type Budget,
+  type FlightOption,
   type FlightOptions,
   type FlightQuery,
+  type FlightSearch,
   type HotelOptions,
+  type LiveFeed,
+  type StayOption,
+  type StaySearch,
 } from "@/lib/api";
 
 /* ---------------------------------------------------------------- primitives */
@@ -25,18 +36,20 @@ function Field({
   n,
   cap,
   className,
+  aside,
   children,
 }: {
   n: string;
   cap: string;
   className: string;
+  aside?: string;
   children: ReactNode;
 }) {
   return (
     <label className={`field ${className}`}>
       <span className="cap mini">
         {cap}
-        <i>{n}</i>
+        <i>{aside ?? n}</i>
       </span>
       {children}
     </label>
@@ -140,7 +153,15 @@ function Stepper({
 }
 
 /* count-up numeral */
-function Money({ value }: { value: number }) {
+function Money({
+  value,
+  cur = "₹",
+  locale = "en-IN",
+}: {
+  value: number;
+  cur?: string;
+  locale?: string;
+}) {
   const [shown, setShown] = useState(0);
   const from = useRef(0);
 
@@ -163,15 +184,192 @@ function Money({ value }: { value: number }) {
 
   return (
     <span className="result-price">
-      <span className="cur">₹</span>
-      {Math.round(shown).toLocaleString("en-IN")}
+      <span className="cur">{cur}</span>
+      {Math.round(shown).toLocaleString(locale)}
     </span>
+  );
+}
+
+/* ---------------------------------------------------------------- type-to-search airport */
+
+function AirportField({
+  n,
+  cap,
+  value,
+  onPick,
+}: {
+  n: string;
+  cap: string;
+  value: AirportHit | null;
+  onPick: (a: AirportHit | null) => void;
+}) {
+  const [text, setText] = useState(value?.code ?? "");
+  const [hits, setHits] = useState<AirportHit[]>([]);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (value) setText(value.code);
+  }, [value?.code]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const q = text.trim();
+    if (!q || (value && q.toUpperCase() === value.code.toUpperCase())) {
+      setHits([]);
+      return;
+    }
+    let alive = true;
+    const t = setTimeout(() => {
+      searchAirports(q)
+        .then((r) => {
+          if (alive) {
+            setHits(r.results);
+            setOpen(true);
+          }
+        })
+        .catch(() => {});
+    }, 140);
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+  }, [text]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const pick = (h: AirportHit) => {
+    setText(h.code);
+    setHits([]);
+    setOpen(false);
+    onPick(h);
+  };
+
+  const close = () => {
+    // allow a typed code to resolve itself before the dropdown folds
+    setOpen(false);
+    const q = text.trim().toUpperCase();
+    if (!value && q.length === 3) {
+      const exact = hits.find((h) => h.code === q);
+      if (exact) pick(exact);
+    }
+  };
+
+  return (
+    <Field n={n} cap={cap} className="select span5 ac" aside={value?.city ?? n}>
+      <input
+        className="control display"
+        value={text}
+        placeholder="city, airport, code"
+        autoCapitalize="characters"
+        spellCheck={false}
+        onChange={(e) => {
+          setText(e.target.value);
+          onPick(null);
+        }}
+        onFocus={() => hits.length > 0 && setOpen(true)}
+        onBlur={close}
+      />
+      {open && hits.length > 0 && (
+        <div className="ac-list display" role="listbox">
+          {hits.map((h) => (
+            <div
+              key={h.code}
+              className="ac-item"
+              role="option"
+              aria-selected={false}
+              tabIndex={-1}
+              onMouseDown={(e) => {
+                e.preventDefault(); // keep input focus until picked
+                pick(h);
+              }}
+            >
+              <span className="ac-code">{h.code}</span>
+              <span className="ac-name">
+                {h.name}
+                <i>
+                  {h.city ?? h.country}
+                </i>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </Field>
+  );
+}
+
+/* ---------------------------------------------------------------- misc formatters */
+
+const CUR_SYMBOL: Record<string, string> = {
+  INR: "₹",
+  USD: "$",
+  EUR: "€",
+  GBP: "£",
+};
+
+function symbol(currency: string): string {
+  return CUR_SYMBOL[currency] ?? `${currency} `;
+}
+
+function localeOf(currency: string): string {
+  return currency === "INR" ? "en-IN" : "en-US";
+}
+
+function clockOf(when: string): string {
+  const m = /\b(\d{2}:\d{2})\b/.exec(when ?? "");
+  return m ? m[1] : "—";
+}
+
+function hm(minutes: number | null): string {
+  if (minutes == null) return "—";
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return h ? `${h}h ${m ? `${m}m` : ""}`.trim() : `${m}m`;
+}
+
+function daystamp(offset: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + offset);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/* fare-history sparkline — accent blue, no green */
+function Spark({ points }: { points: [number, number][] }) {
+  if (points.length < 2) return null;
+  const w = 220;
+  const h = 56;
+  const ys = points.map((p) => p[1]);
+  const lo = Math.min(...ys);
+  const hi = Math.max(...ys);
+  const span = hi - lo || 1;
+  const step = w / (points.length - 1);
+  const xy = points.map(([_, y], i) => [
+    i * step,
+    h - 6 - ((y - lo) / span) * (h - 12),
+  ]);
+  const draw = xy.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
+  const [dx, dy] = xy[xy.length - 1];
+  return (
+    <svg className="spark" viewBox={`0 0 ${w} ${h}`} width={w} height={h}>
+      <polyline points={draw} fill="none" />
+      <circle cx={dx} cy={dy} r="3.4" />
+    </svg>
+  );
+}
+
+/* board badges (LIVE / CACHE / REPLAY + spend-note) */
+function Tags({ search }: { search: { mock?: boolean; cached?: boolean; fetched_on: string } }) {
+  const kind = search.mock ? "sample replay" : search.cached ? "cache — no call spent" : "live board";
+  const cls = search.mock ? "tag" : search.cached ? "tag hot" : "tag live";
+  return (
+    <div className="board-tags">
+      <span className={cls}>{kind}</span>
+      <span className="tag dim">fetched {search.fetched_on}</span>
+    </div>
   );
 }
 
 /* ---------------------------------------------------------------- page types */
 
-type Mode = "flights" | "stays";
+type Panel = "flights" | "stays" | "predict";
 type Result =
   | { kind: "flight"; price: number; meta: [string, string][] }
   | { kind: "stay"; price: number; meta: [string, string][] }
@@ -186,8 +384,161 @@ const TICKER: string[][] = [
   ["HYD", "DEL", "12,482", "GO FIRST · 2 STOPS"],
 ];
 
+/* ---------------------------------------------------------------- flight board row */
+
+function Itin({ o, cur, loc }: { o: FlightOption; cur: string; loc: string }) {
+  const legs = o.legs ?? [];
+  const first = legs[0];
+  const last = legs[legs.length - 1];
+  const logo = o.logo ?? first?.logo ?? "";
+  const noStop = legs.length <= 1;
+  return (
+    <div className="itin">
+      <div className="itin-left">
+        {logo && <img className="itin-logo" src={logo} alt="" loading="lazy" />}
+        <div>
+          <div className="itin-times">
+            <b>{clockOf(first?.dep_time ?? "")}</b>
+            <span className="itin-arrow">→</span>
+            <b>{clockOf(last?.arr_time ?? "")}</b>
+          </div>
+          <div className="mini dim">
+            {first?.dep_code ?? "?"} — {last?.arr_code ?? "?"} · {hm(o.duration)}
+          </div>
+        </div>
+      </div>
+      <div className="itin-mid">
+        <div className="itin-airline">{first?.airline ?? "—"}</div>
+        <div className="mini dim">
+          {legs.map((l) => l.flight).filter(Boolean).join(" · ")}
+          {noStop
+            ? " · non-stop"
+            : ` · ${o.layovers.map((l) => l.name ?? "?").join(", ")}`}
+        </div>
+        {legs.length > 1 && (
+          <div className="mini dim">
+            each leg: {legs.map((l) => hm(l.duration)).join(" + ")}
+          </div>
+        )}
+      </div>
+      <div className="itin-right">
+        <span className="fare display">
+          <i>{cur}</i>
+          {o.price != null ? o.price.toLocaleString(loc) : "—"}
+        </span>
+        {o.carbon != null && (
+          <span className={`carbon mini ${o.carbon <= 0 ? "" : "over"}`}>
+            carbon {o.carbon > 0 ? "+" : ""}
+            {o.carbon}%
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------- stay board card */
+
+function StayCard({ s, cur }: { s: StayOption; cur: string }) {
+  const pic = s.images[0];
+  const body = (
+    <div className="stay-card">
+      <div className="stay-ph">
+        {pic?.thumb ? (
+          <img src={pic.thumb} alt={s.name} loading="lazy" />
+        ) : null}
+        {s.deal && <span className="stay-deal display">{s.deal}</span>}
+        {s.rating ? (
+          <span className="stay-rating display">
+            {s.rating.toFixed(1)}
+          </span>
+        ) : null}
+      </div>
+      <div className="stay-body">
+        <div className="stay-name">
+          {s.class_num ? (
+            <span className="stars" aria-label={`${s.class_num}-star`}>
+              {"★".repeat(Math.min(5, s.class_num))}
+            </span>
+          ) : null}
+          <b>{s.name}</b>
+        </div>
+        <div className="mini dim"><i>{s.type} · Reviews: {(s.reviews ?? 0).toLocaleString("en-US")}</i></div>
+        <div className="stay-rate">
+          <span className="p display">
+            <i>{cur}</i>
+            {s.price != null ? s.price.toLocaleString("en-IN") : s.price_display ?? "—"}
+          </span>
+          <span className="sub mini">/ night</span>
+        </div>
+        {s.total_display && (
+          <div className="mini dim">full stay — {s.total_display}</div>
+        )}
+        <div className="chiprow">
+          {s.amenities.slice(0, 4).map((a) => (
+            <span className="chip mini" key={a}>{a}</span>
+          ))}
+        </div>
+        <div className="stay-foot mini">
+          <span>in {s.check_in_time ?? "—"} · out {s.check_out_time ?? "—"}</span>
+          {s.location_rating ? <span>loc {s.location_rating}</span> : null}
+        </div>
+      </div>
+    </div>
+  );
+  return s.link ? (
+    <a href={s.link} target="_blank" rel="noreferrer">{body}</a>
+  ) : body;
+}
+
+/* ---------------------------------------------------------------- default form values */
+
+function flightHuntDefaults() {
+  return {
+    origin: null as AirportHit | null,
+    destination: null as AirportHit | null,
+    outbound: daystamp(9),
+    ret: daystamp(14),
+    cabin: "economy",
+    adults: 2,
+    kids: 0,
+    feed: "replay" as LiveFeed,
+  };
+}
+
+function stayHuntDefaults() {
+  return {
+    q: "",
+    checkIn: daystamp(9),
+    checkOut: daystamp(11),
+    adults: 2,
+    kids: 0,
+    sort: "3",
+    feed: "replay" as LiveFeed,
+  };
+}
+
+/* ---------------------------------------------------------------- page */
+
 export default function Home() {
-  const [mode, setMode] = useState<Mode>("flights");
+  /* ----- global panel ----- */
+  const [panel, setPanel] = useState<Panel>("flights");
+  const [budget, setBudget] = useState<Budget | null>(null);
+
+  /* ----- live flight search ----- */
+  const [flight, setFlight] = useState<FlightSearch | null>(null);
+  const [flightError, setFlightError] = useState<string | null>(null);
+  const [fPending, setFPending] = useState(false);
+  const [fh, setFh] = useState(flightHuntDefaults);
+  const flightRef = useRef<HTMLDivElement>(null);
+  const [stay, setStay] = useState<StaySearch | null>(null);
+  const [stayError, setStayError] = useState<string | null>(null);
+  const [sPending, setSPending] = useState(false);
+  const [sh, setSh] = useState(stayHuntDefaults);
+  const stayRef = useRef<HTMLDivElement>(null);
+
+  /* ----- legacy predict console ----- */
+  const [predictKind, setPredictKind] = useState<"flights" | "stays">("flights");
   const [flightOptions, setFlightOptions] = useState<FlightOptions | null>(null);
   const [stayOptions, setStayOptions] = useState<HotelOptions | null>(null);
   const [result, setResult] = useState<Result | null>(null);
@@ -199,10 +550,16 @@ export default function Home() {
       .then(setFlightOptions)
       .catch(() => {});
     fetchStayOptions().then(setStayOptions).catch(() => {});
+    fetchBudget()
+      .then(setBudget)
+      .catch(() => {});
   }, []);
 
-  /* ----- flights state ----- */
-  const [flight, setFlight] = useState<FlightQuery>({
+  const patchFh = (kv: Partial<typeof fh>) => setFh((s) => ({ ...s, ...kv }));
+  const patchSh = (kv: Partial<typeof sh>) => setSh((s) => ({ ...s, ...kv }));
+
+  /* ----- legacy flight state ----- */
+  const [flightPred, setFlightPred] = useState<FlightQuery>({
     source_city: "Delhi",
     destination_city: "Mumbai",
     airline: "Vistara",
@@ -215,16 +572,16 @@ export default function Home() {
   });
 
   const patchFlight = (kv: Partial<FlightQuery>) =>
-    setFlight((f) => ({ ...f, ...kv }));
+    setFlightPred((f) => ({ ...f, ...kv }));
 
   const swapCities = () =>
     patchFlight({
-      source_city: flight.destination_city,
-      destination_city: flight.source_city,
+      source_city: flightPred.destination_city,
+      destination_city: flightPred.source_city,
     });
 
-  /* ----- stays state ----- */
-  const [stay, setStay] = useState({
+  /* ----- legacy stays state ----- */
+  const [stayPred, setStayPred] = useState({
     hotel: "City Hotel",
     arrival_date_month: "August",
     arrival_date_year: 2016,
@@ -235,29 +592,102 @@ export default function Home() {
     adults: 2,
   });
 
-  const patchStay = (kv: Partial<typeof stay>) =>
-    setStay((s) => ({ ...s, ...kv }));
+  const patchStay = (kv: Partial<typeof stayPred>) =>
+    setStayPred((s) => ({ ...s, ...kv }));
 
-  /* ----- submit ----- */
+  /* ----- live submit: flights ----- */
+  const runFlight = async () => {
+    if (!fh.origin || !fh.destination) {
+      setFlightError("pick both airports from the dropdown first");
+      return;
+    }
+    if (fh.feed === "live" && budget && budget.remaining <= 0) {
+      setFlightError(
+        "lifetime serpapi budget is spent — switch the feed to REPLAY (cached results stay available)",
+      );
+      return;
+    }
+    setFPending(true);
+    setFlightError(null);
+    try {
+      const res = await searchLiveFlights({
+        origin: fh.origin.code,
+        destination: fh.destination.code,
+        outbound_date: fh.outbound,
+        return_date: fh.ret,
+        travel_class: fh.cabin,
+        adults: fh.adults,
+        children: fh.kids,
+        feed: fh.feed,
+      });
+      setFlight(res);
+      setBudget(res.budget);
+      requestAnimationFrame(() =>
+        flightRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }),
+      );
+    } catch (e) {
+      setFlightError((e as Error).message);
+    } finally {
+      setFPending(false);
+    }
+  };
+
+  /* ----- live submit: stays ----- */
+  const runStays = async () => {
+    if (!sh.q.trim()) {
+      setStayError("type a destination for the hotels board");
+      return;
+    }
+    if (sh.feed === "live" && budget && budget.remaining <= 0) {
+      setStayError(
+        "lifetime serpapi budget is spent — switch the feed to REPLAY (cached results stay available)",
+      );
+      return;
+    }
+    setSPending(true);
+    setStayError(null);
+    try {
+      const res = await searchLiveStays({
+        q: sh.q.trim(),
+        check_in_date: sh.checkIn,
+        check_out_date: sh.checkOut,
+        adults: sh.adults,
+        children: sh.kids,
+        sort_by: sh.sort,
+        feed: sh.feed,
+      });
+      setStay(res);
+      setBudget(res.budget);
+      requestAnimationFrame(() =>
+        stayRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }),
+      );
+    } catch (e) {
+      setStayError((e as Error).message);
+    } finally {
+      setSPending(false);
+    }
+  };
+
+  /* ----- legacy submit ----- */
   const submit = async () => {
     setPending(true);
     setResult(null);
     try {
-      if (mode === "flights") {
-        const { predicted_price: p } = await predictFlight(flight);
+      if (predictKind === "flights") {
+        const { predicted_price: p } = await predictFlight(flightPred);
         setResult({
           kind: "flight",
           price: p[0],
           meta: [
-            ["Route", `${flight.source_city} → ${flight.destination_city}`],
-            ["Cabin", `${flight.airline} · ${flight.class}`],
+            ["Route", `${flightPred.source_city} → ${flightPred.destination_city}`],
+            ["Cabin", `${flightPred.airline} · ${flightPred.class}`],
             [
               "Windows",
-              `${prettify(flight.departure_time)} dep — ${prettify(flight.arrival_time)} arr`,
+              `${prettify(flightPred.departure_time)} dep — ${prettify(flightPred.arrival_time)} arr`,
             ],
             [
               "Shape",
-              `${prettify(flight.stops)} · ${flight.duration.toFixed(1)}h · ${flight.days_left} days out`,
+              `${prettify(flightPred.stops)} · ${flightPred.duration.toFixed(1)}h · ${flightPred.days_left} days out`,
             ],
           ],
         });
@@ -265,22 +695,22 @@ export default function Home() {
         const res = await fetch("/api/hotel/predict", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(stay),
+          body: JSON.stringify(stayPred),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error ?? "prediction failed");
-        const nights = stay.stays_in_weekend_nights + stay.stays_in_week_nights;
+        const nights = stayPred.stays_in_weekend_nights + stayPred.stays_in_week_nights;
         setResult({
           kind: "stay",
           price: data.adr[0],
           meta: [
-            ["Property", stay.hotel],
+            ["Property", stayPred.hotel],
             [
               "Check-in",
-              `${stay.arrival_date_month} ${stay.arrival_date_day_of_month}, ${stay.arrival_date_year} · wk ${stay.arrival_date_week_number}`,
+              `${stayPred.arrival_date_month} ${stayPred.arrival_date_day_of_month}, ${stayPred.arrival_date_year} · wk ${stayPred.arrival_date_week_number}`,
             ],
-            ["Nights", `${nights} (${stay.stays_in_week_nights}wk + ${stay.stays_in_weekend_nights}end)`],
-            ["Party", `${stay.adults} adult${stay.adults > 1 ? "s" : ""}`],
+            ["Nights", `${nights} (${stayPred.stays_in_week_nights}wk + ${stayPred.stays_in_weekend_nights}end)`],
+            ["Party", `${stayPred.adults} adult${stayPred.adults > 1 ? "s" : ""}`],
           ],
         });
       }
@@ -297,9 +727,38 @@ export default function Home() {
     }
   };
 
+  /* ----- board sectioning: round-trip vs sampled one-way ----- */
+  const flightSections = (() => {
+    if (!flight) return [];
+    if (flight.departures.length || flight.returns.length) {
+      const out: { cap: string; list: FlightOption[] }[] = [];
+      if (flight.departures.length)
+        out.push({
+          cap: `Outbound — ${flight.trip.origin} → ${flight.trip.destination}`,
+          list: flight.departures,
+        });
+      if (flight.returns.length)
+        out.push({
+          cap: `Inbound — ${flight.trip.destination} → ${flight.trip.origin}`,
+          list: flight.returns,
+        });
+      if (flight.selected.length)
+        out.push({ cap: "Fare pairs", list: flight.selected });
+      return out;
+    }
+    const out: { cap: string; list: FlightOption[] }[] = [];
+    if (flight.best.length) out.push({ cap: "Top fares", list: flight.best });
+    if (flight.others.length) out.push({ cap: "All other fares", list: flight.others });
+    return out;
+  })();
+
+  const fCur = symbol(flight?.currency ?? "INR");
+  const fLoc = localeOf(flight?.currency ?? "INR");
+  const sCur = symbol(stay?.currency ?? "INR");
+
   return (
     <>
-      {pending && <div className="pending-bar" />}
+      {(pending || fPending || sPending) && <div className="pending-bar" />}
       <div className="grain" />
 
       <Chrome />
@@ -310,7 +769,7 @@ export default function Home() {
         <div className="hero-beam" />
         <div className="hero-eyebrow">
           <span className="pulse" />
-          <span className="mini">Live fare engine — trained nightly, served on-device</span>
+          <span className="mini">Live market boards — Google Flights · Google Hotels · INR</span>
         </div>
         <h1 className="hero-title">
           <span className="bleed">NEVER OVERPAY</span>
@@ -319,9 +778,9 @@ export default function Home() {
           </span>
         </h1>
         <p className="hero-sub">
-          Vovage reads the market before you do — airline economics, demand
-          windows, cabin pressure on price — and tells you what tomorrow&rsquo;s
-          ticket should cost. Flights and stays, one instrument.
+          Vovage reads the market before you do — Google&rsquo;s live fare
+          boards for seats and stays, priced in rupees, cross-checked against
+          our own economic models. Flights and stays, one instrument.
         </p>
       </section>
 
@@ -331,246 +790,541 @@ export default function Home() {
       <section className="console">
         <div className="console-tabs">
           <button
-            className={`console-tab${mode === "flights" ? " active" : ""}`}
-            onClick={() => setMode("flights")}
+            className={`console-tab${panel === "flights" ? " active" : ""}`}
+            onClick={() => setPanel("flights")}
           >
             Flights
           </button>
           <button
-            className={`console-tab${mode === "stays" ? " active" : ""}`}
-            onClick={() => setMode("stays")}
+            className={`console-tab${panel === "stays" ? " active" : ""}`}
+            onClick={() => setPanel("stays")}
           >
             Stays
           </button>
+          <button
+            className={`console-tab${panel === "predict" ? " active" : ""}`}
+            onClick={() => setPanel("predict")}
+          >
+            Predict
+          </button>
+          <div className="console-budget display">
+            <span className="mini">live calls</span>
+            <b>{budget ? budget.remaining : "—"}/{budget?.max ?? 5}</b>
+          </div>
         </div>
 
         <div className="console-body">
-          {mode === "flights" ? (
+          {/* ================= live flights ================= */}
+          {panel === "flights" && (
             <div className="form-grid">
-              <Field n="01" cap="From" className="select span5">
-                <Select
-                  value={flight.source_city}
-                  onChange={(v) => patchFlight({ source_city: v })}
-                  options={CITIES}
-                />
-              </Field>
+              <AirportField
+                n="01"
+                cap="Fly from"
+                value={fh.origin}
+                onPick={(a) => patchFh({ origin: a })}
+              />
               <button
                 className="swap"
-                onClick={swapCities}
+                onClick={() =>
+                  patchFh({ origin: fh.destination, destination: fh.origin })
+                }
                 aria-label="Swap origin and destination"
               >
                 ⇄
               </button>
-              <Field n="02" cap="To" className="select span5">
-                <Select
-                  value={flight.destination_city}
-                  onChange={(v) => patchFlight({ destination_city: v })}
-                  options={CITIES}
-                />
-              </Field>
+              <AirportField
+                n="02"
+                cap="Fly to"
+                value={fh.destination}
+                onPick={(a) => patchFh({ destination: a })}
+              />
 
-              <Field n="03" cap="Departs" className="select span4">
-                <Select
-                  value={flight.departure_time}
-                  onChange={(v) => patchFlight({ departure_time: v })}
-                  options={
-                    flightOptions?.options.departure_time ?? [
-                      "Early_Morning", "Morning", "Afternoon", "Evening",
-                      "Night", "Late_Night",
-                    ]
-                  }
+              <Field n="03" cap="Departs" className="span4">
+                <input
+                  type="date"
+                  value={fh.outbound}
+                  min={daystamp(0)}
+                  onChange={(e) => patchFh({ outbound: e.target.value })}
                 />
               </Field>
-              <Field n="04" cap="Lands" className="select span4">
-                <Select
-                  value={flight.arrival_time}
-                  onChange={(v) => patchFlight({ arrival_time: v })}
-                  options={
-                    flightOptions?.options.arrival_time ?? [
-                      "Early_Morning", "Morning", "Afternoon", "Evening",
-                      "Night", "Late_Night",
-                    ]
-                  }
+              <Field n="04" cap="Returns" className="span4">
+                <input
+                  type="date"
+                  value={fh.ret}
+                  min={fh.outbound || daystamp(0)}
+                  onChange={(e) => patchFh({ ret: e.target.value })}
                 />
               </Field>
-              <Field n="05" cap="Stops" className="span4">
-                <Seg
-                  value={flight.stops}
-                  onChange={(v) => patchFlight({ stops: v })}
-                  options={["zero", "one", "two_or_more"]}
-                />
-              </Field>
-
-              <Field n="06" cap="Airline" className="select span4">
-                <Select
-                  value={flight.airline}
-                  onChange={(v) => patchFlight({ airline: v })}
-                  options={
-                    flightOptions?.options.airline ?? [
-                      "Vistara", "Air_India", "Indigo", "GO_FIRST",
-                      "SpiceJet", "AirAsia",
-                    ]
-                  }
-                />
-              </Field>
-              <Field n="07" cap="Cabin" className="span4">
-                <Seg
-                  value={flight.class}
-                  onChange={(v) => patchFlight({ class: v })}
-                  options={["Economy", "Business"]}
-                />
-              </Field>
-              <Field n="08" cap="Air time, hours" className="span4">
-                <div className="slider-row">
-                  <input
-                    className="num"
-                    type="number"
-                    min={0.8}
-                    max={50}
-                    step={0.1}
-                    value={flight.duration}
-                    onChange={(e) => {
-                      const v = parseFloat(e.target.value);
-                      if (!Number.isNaN(v))
-                        patchFlight({ duration: Math.min(50, Math.max(0.8, v)) });
-                    }}
-                  />
-                  <input
-                    type="range"
-                    aria-label="duration"
-                    min={0.83}
-                    max={49.83}
-                    step={0.1}
-                    value={flight.duration}
-                    onChange={(e) => patchFlight({ duration: +e.target.value })}
-                  />
+              <Field n="05" cap="Cabin" className="span4">
+                <div className="seg" role="radiogroup">
+                  {[
+                    ["economy", "Economy"],
+                    ["premium_economy", "Premium"],
+                    ["business", "Business"],
+                    ["first", "First"],
+                  ].map(([v, label]) => (
+                    <button
+                      key={v}
+                      type="button"
+                      role="radio"
+                      aria-checked={fh.cabin === v}
+                      className={fh.cabin === v ? "on" : ""}
+                      onClick={() => patchFh({ cabin: v })}
+                    >
+                      {label}
+                    </button>
+                  ))}
                 </div>
               </Field>
 
-              <Field n="09" cap="Book ahead, days" className="span8">
-                <div className="slider-row">
-                  <input
-                    className="num"
-                    type="number"
-                    min={1}
-                    max={49}
-                    value={flight.days_left}
-                    onChange={(e) => {
-                      const v = parseInt(e.target.value, 10);
-                      if (!Number.isNaN(v))
-                        patchFlight({ days_left: Math.min(49, Math.max(1, v)) });
-                    }}
-                  />
-                  <input
-                    type="range"
-                    aria-label="days left"
-                    min={1}
-                    max={49}
-                    value={flight.days_left}
-                    onChange={(e) => patchFlight({ days_left: +e.target.value })}
-                  />
-                </div>
-              </Field>
-
-              <div className="launch" style={{ gridColumn: "span 4" }}>
-                <div className="launch-inner" style={{ padding: "26px 0 20px" }}>
-                  <p className="hint">
-                    Estimates the fare <em>now</em> from 37 market features —
-                    not yesterday&rsquo;s brochure.
-                  </p>
-                  <button className="launch-btn" onClick={submit} disabled={pending}>
-                    {pending ? "Reading the market…" : "Estimate fare"}
-                  </button>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="form-grid">
-              <Field n="01" cap="Property" className="select span4">
-                <Select
-                  value={stay.hotel}
-                  onChange={(v) => patchStay({ hotel: v })}
-                  options={stayOptions?.hotel ?? ["City Hotel", "Resort Hotel"]}
-                />
-              </Field>
-              <Field n="02" cap="Month" className="select span4">
-                <Select
-                  value={stay.arrival_date_month}
-                  onChange={(v) => patchStay({ arrival_date_month: v })}
-                  options={[
-                    "January", "February", "March", "April", "May", "June",
-                    "July", "August", "September", "October", "November",
-                    "December",
-                  ]}
-                />
-              </Field>
-              <Field n="03" cap="Year" className="select span4">
-                <Select
-                  value={String(stay.arrival_date_year)}
-                  onChange={(v) => patchStay({ arrival_date_year: +v })}
-                  options={["2015", "2016", "2017"]}
-                />
-              </Field>
-
-              <Field n="04" cap="Arrival week" className="stepper span4">
+              <Field n="06" cap="Adults" className="stepper span2">
                 <Stepper
-                  value={stay.arrival_date_week_number}
-                  onChange={(v) => patchStay({ arrival_date_week_number: v })}
+                  value={fh.adults}
+                  onChange={(v) => patchFh({ adults: v })}
                   min={1}
-                  max={53}
+                  max={8}
                 />
               </Field>
-              <Field n="05" cap="Day of month" className="stepper span4">
+              <Field n="07" cap="Children" className="stepper span2">
                 <Stepper
-                  value={stay.arrival_date_day_of_month}
-                  onChange={(v) => patchStay({ arrival_date_day_of_month: v })}
-                  min={1}
-                  max={31}
-                />
-              </Field>
-              <Field n="06" cap="Adults" className="stepper span4">
-                <Stepper
-                  value={stay.adults}
-                  onChange={(v) => patchStay({ adults: v })}
-                  min={1}
-                  max={10}
-                />
-              </Field>
-
-              <Field n="07" cap="Week-nights" className="stepper span4">
-                <Stepper
-                  value={stay.stays_in_week_nights}
-                  onChange={(v) => patchStay({ stays_in_week_nights: v })}
+                  value={fh.kids}
+                  onChange={(v) => patchFh({ kids: v })}
                   min={0}
-                  max={10}
+                  max={8}
                 />
               </Field>
-              <Field n="08" cap="Weekend-nights" className="stepper span4">
-                <Stepper
-                  value={stay.stays_in_weekend_nights}
-                  onChange={(v) => patchStay({ stays_in_weekend_nights: v })}
-                  min={0}
-                  max={10}
+              <Field n="08" cap="Fares feed" className="span4"
+                aside={fh.feed === "live" ? "spends budget" : "zero cost"}
+              >
+                <Seg
+                  value={fh.feed}
+                  onChange={(v) => patchFh({ feed: v as LiveFeed })}
+                  options={["live", "replay"]}
                 />
               </Field>
 
               <div className="launch" style={{ gridColumn: "span 4" }}>
                 <div className="launch-inner" style={{ padding: "30px 0 20px" }}>
                   <p className="hint">
-                    Everything else — meals, channel, history — is inferred from
-                    the booking&rsquo;s own signal.
+                    {fh.feed === "live"
+                      ? "One real SerpApi round-trip call — then cached forever."
+                      : "Sample board from a captured search — zero calls spent."}
                   </p>
-                  <button className="launch-btn" onClick={submit} disabled={pending}>
-                    {pending ? "Reading the market…" : "Estimate night rate"}
+                  <button className="launch-btn" onClick={runFlight} disabled={fPending}>
+                    {fPending ? "Reading the board…" : "Search fares"}
                   </button>
                 </div>
               </div>
             </div>
           )}
+
+          {/* ================= live stays ================= */}
+          {panel === "stays" && (
+            <div className="form-grid">
+              <Field n="01" cap="Where" className="span6" aside={sh.q ? "google hotels" : "01"}>
+                <input
+                  className="control display"
+                  value={sh.q}
+                  placeholder="Bali Resorts, Goa, Shimla —"
+                  onChange={(e) => patchSh({ q: e.target.value })}
+                />
+              </Field>
+
+              <Field n="02" cap="Check-in" className="span3">
+                <input
+                  type="date"
+                  value={sh.checkIn}
+                  min={daystamp(0)}
+                  onChange={(e) => patchSh({ checkIn: e.target.value })}
+                />
+              </Field>
+              <Field n="03" cap="Check-out" className="span3">
+                <input
+                  type="date"
+                  value={sh.checkOut}
+                  min={sh.checkIn || daystamp(0)}
+                  onChange={(e) => patchSh({ checkOut: e.target.value })}
+                />
+              </Field>
+
+              <Field n="04" cap="Adults" className="stepper span2">
+                <Stepper
+                  value={sh.adults}
+                  onChange={(v) => patchSh({ adults: v })}
+                  min={1}
+                  max={8}
+                />
+              </Field>
+              <Field n="05" cap="Children" className="stepper span2">
+                <Stepper
+                  value={sh.kids}
+                  onChange={(v) => patchSh({ kids: v })}
+                  min={0}
+                  max={8}
+                />
+              </Field>
+              <Field n="06" cap="Sort" className="select span2">
+                <select
+                  className="control display"
+                  value={sh.sort}
+                  onChange={(e) => patchSh({ sort: e.target.value })}
+                >
+                  <option value="3">Lowest price</option>
+                  <option value="8">Highest rating</option>
+                  <option value="9">Most reviewed</option>
+                </select>
+              </Field>
+
+              <Field
+                n="07"
+                cap="Fares feed"
+                className="span4"
+                aside={sh.feed === "live" ? "spends budget" : "zero cost"}
+              >
+                <Seg
+                  value={sh.feed}
+                  onChange={(v) => patchSh({ feed: v as LiveFeed })}
+                  options={["live", "replay"]}
+                />
+              </Field>
+
+              <div className="launch" style={{ gridColumn: "span 2" }}>
+                <div className="launch-inner" style={{ padding: "30px 0 20px" }}>
+                  <p className="hint">
+                    {sh.feed === "live"
+                      ? "One real SerpApi hotels call — the whole board in one shot."
+                      : "Sample board from a captured search — zero calls spent."}
+                  </p>
+                  <button className="launch-btn" onClick={runStays} disabled={sPending}>
+                    {sPending ? "Reading the board…" : "Search stays"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ================= legacy predict ================= */}
+          {panel === "predict" && (
+            <>
+              <div className="predict-kind">
+                <Seg
+                  value={predictKind}
+                  onChange={(v) => setPredictKind(v as "flights" | "stays")}
+                  options={["flights", "stays"]}
+                />
+              </div>
+              {predictKind === "flights" ? (
+                <div className="form-grid">
+                  <Field n="01" cap="From" className="select span5">
+                    <Select
+                      value={flightPred.source_city}
+                      onChange={(v) => patchFlight({ source_city: v })}
+                      options={CITIES}
+                    />
+                  </Field>
+                  <button
+                    className="swap"
+                    onClick={swapCities}
+                    aria-label="Swap origin and destination"
+                  >
+                    ⇄
+                  </button>
+                  <Field n="02" cap="To" className="select span5">
+                    <Select
+                      value={flightPred.destination_city}
+                      onChange={(v) => patchFlight({ destination_city: v })}
+                      options={CITIES}
+                    />
+                  </Field>
+
+                  <Field n="03" cap="Departs" className="select span4">
+                    <Select
+                      value={flightPred.departure_time}
+                      onChange={(v) => patchFlight({ departure_time: v })}
+                      options={
+                        flightOptions?.options.departure_time ?? [
+                          "Early_Morning", "Morning", "Afternoon", "Evening",
+                          "Night", "Late_Night",
+                        ]
+                      }
+                    />
+                  </Field>
+                  <Field n="04" cap="Lands" className="select span4">
+                    <Select
+                      value={flightPred.arrival_time}
+                      onChange={(v) => patchFlight({ arrival_time: v })}
+                      options={
+                        flightOptions?.options.arrival_time ?? [
+                          "Early_Morning", "Morning", "Afternoon", "Evening",
+                          "Night", "Late_Night",
+                        ]
+                      }
+                    />
+                  </Field>
+                  <Field n="05" cap="Stops" className="span4">
+                    <Seg
+                      value={flightPred.stops}
+                      onChange={(v) => patchFlight({ stops: v })}
+                      options={["zero", "one", "two_or_more"]}
+                    />
+                  </Field>
+
+                  <Field n="06" cap="Airline" className="select span4">
+                    <Select
+                      value={flightPred.airline}
+                      onChange={(v) => patchFlight({ airline: v })}
+                      options={
+                        flightOptions?.options.airline ?? [
+                          "Vistara", "Air_India", "Indigo", "GO_FIRST",
+                          "SpiceJet", "AirAsia",
+                        ]
+                      }
+                    />
+                  </Field>
+                  <Field n="07" cap="Cabin" className="span4">
+                    <Seg
+                      value={flightPred.class}
+                      onChange={(v) => patchFlight({ class: v })}
+                      options={["Economy", "Business"]}
+                    />
+                  </Field>
+                  <Field n="08" cap="Air time, hours" className="span4">
+                    <div className="slider-row">
+                      <input
+                        className="num"
+                        type="number"
+                        min={0.8}
+                        max={50}
+                        step={0.1}
+                        value={flightPred.duration}
+                        onChange={(e) => {
+                          const v = parseFloat(e.target.value);
+                          if (!Number.isNaN(v))
+                            patchFlight({ duration: Math.min(50, Math.max(0.8, v)) });
+                        }}
+                      />
+                      <input
+                        type="range"
+                        aria-label="duration"
+                        min={0.83}
+                        max={49.83}
+                        step={0.1}
+                        value={flightPred.duration}
+                        onChange={(e) => patchFlight({ duration: +e.target.value })}
+                      />
+                    </div>
+                  </Field>
+
+                  <Field n="09" cap="Book ahead, days" className="span8">
+                    <div className="slider-row">
+                      <input
+                        className="num"
+                        type="number"
+                        min={1}
+                        max={49}
+                        value={flightPred.days_left}
+                        onChange={(e) => {
+                          const v = parseInt(e.target.value, 10);
+                          if (!Number.isNaN(v))
+                            patchFlight({ days_left: Math.min(49, Math.max(1, v)) });
+                        }}
+                      />
+                      <input
+                        type="range"
+                        aria-label="days left"
+                        min={1}
+                        max={49}
+                        value={flightPred.days_left}
+                        onChange={(e) => patchFlight({ days_left: +e.target.value })}
+                      />
+                    </div>
+                  </Field>
+
+                  <div className="launch" style={{ gridColumn: "span 4" }}>
+                    <div className="launch-inner" style={{ padding: "26px 0 20px" }}>
+                      <p className="hint">
+                        Estimates the fare <em>now</em> from 37 market features —
+                        not yesterday&rsquo;s brochure.
+                      </p>
+                      <button className="launch-btn" onClick={submit} disabled={pending}>
+                        {pending ? "Reading the market…" : "Estimate fare"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="form-grid">
+                  <Field n="01" cap="Property" className="select span4">
+                    <Select
+                      value={stayPred.hotel}
+                      onChange={(v) => patchStay({ hotel: v })}
+                      options={stayOptions?.hotel ?? ["City Hotel", "Resort Hotel"]}
+                    />
+                  </Field>
+                  <Field n="02" cap="Month" className="select span4">
+                    <Select
+                      value={stayPred.arrival_date_month}
+                      onChange={(v) => patchStay({ arrival_date_month: v })}
+                      options={[
+                        "January", "February", "March", "April", "May", "June",
+                        "July", "August", "September", "October", "November",
+                        "December",
+                      ]}
+                    />
+                  </Field>
+                  <Field n="03" cap="Year" className="select span4">
+                    <Select
+                      value={String(stayPred.arrival_date_year)}
+                      onChange={(v) => patchStay({ arrival_date_year: +v })}
+                      options={["2015", "2016", "2017"]}
+                    />
+                  </Field>
+
+                  <Field n="04" cap="Arrival week" className="stepper span4">
+                    <Stepper
+                      value={stayPred.arrival_date_week_number}
+                      onChange={(v) => patchStay({ arrival_date_week_number: v })}
+                      min={1}
+                      max={53}
+                    />
+                  </Field>
+                  <Field n="05" cap="Day of month" className="stepper span4">
+                    <Stepper
+                      value={stayPred.arrival_date_day_of_month}
+                      onChange={(v) => patchStay({ arrival_date_day_of_month: v })}
+                      min={1}
+                      max={31}
+                    />
+                  </Field>
+                  <Field n="06" cap="Adults" className="stepper span4">
+                    <Stepper
+                      value={stayPred.adults}
+                      onChange={(v) => patchStay({ adults: v })}
+                      min={1}
+                      max={10}
+                    />
+                  </Field>
+
+                  <Field n="07" cap="Week-nights" className="stepper span4">
+                    <Stepper
+                      value={stayPred.stays_in_week_nights}
+                      onChange={(v) => patchStay({ stays_in_week_nights: v })}
+                      min={0}
+                      max={10}
+                    />
+                  </Field>
+                  <Field n="08" cap="Weekend-nights" className="stepper span4">
+                    <Stepper
+                      value={stayPred.stays_in_weekend_nights}
+                      onChange={(v) => patchStay({ stays_in_weekend_nights: v })}
+                      min={0}
+                      max={10}
+                    />
+                  </Field>
+
+                  <div className="launch" style={{ gridColumn: "span 4" }}>
+                    <div className="launch-inner" style={{ padding: "30px 0 20px" }}>
+                      <p className="hint">
+                        Everything else — meals, channel, history — is inferred from
+                        the booking&rsquo;s own signal.
+                      </p>
+                      <button className="launch-btn" onClick={submit} disabled={pending}>
+                        {pending ? "Reading the market…" : "Estimate night rate"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
         </div>
       </section>
 
-      {/* ------------------------------------------------------- result */}
+      {/* ------------------------------------------------------- live: flights board */}
+      <div ref={flightRef} id="flight-board">
+        {flightError && (
+          <section className="board-error flash" role="alert" key="ferr">
+            <b>/// </b>
+            The board refused this query — {flightError}
+          </section>
+        )}
+        {flight && !flightError && (
+          <section className="board flash" key={`fl-${flight.fetched_on}-${flight.cached}`}>
+            <div className="board-head">
+              <Tags search={flight} />
+              {flight.insights?.low == null ? null : (
+                <div className="board-grid">
+                  <div>
+                    <div className="cap mini">cheapest on the {flight.trip.outbound_date} · {flight.trip.return_date} board</div>
+                    <span style={{ display: "block" }}>
+                      <Money value={flight.insights.low} cur={fCur} locale={fLoc} />
+                    </span>
+                    {flight.insights.range.length === 2 && (
+                      <div className="mini dim" style={{ marginTop: 10 }}>
+                        typical {fCur}{flight.insights.range[0]}–{fCur}
+                        {flight.insights.range[1]} · market {flight.insights.level}
+                      </div>
+                    )}
+                  </div>
+                  <div className="board-spark">
+                    <div className="cap mini">fare history · {fCur}</div>
+                    <Spark points={flight.insights.history.slice(-44)} />
+                  </div>
+                </div>
+              )}
+            </div>
+            {flightSections.map((s) => (
+              <div className="flight-col" key={s.cap}>
+                <div className="cap mini flight-col-cap">{s.cap}</div>
+                {s.list.map((o, i) => (
+                  <Itin o={o} cur={fCur} loc={fLoc} key={`${s.cap}-${i}-${o.price}-${o.legs[0]?.flight ?? ""}`} />
+                ))}
+              </div>
+            ))}
+            <div className="board-foot mini dim">
+              {flight.mock
+                ? "sample data — served from the captured fixture, no live call was made"
+                : flight.cached
+                  ? "served from cache — indexed the day it was fetched"
+                  : "live results via SerpApi — one call of the lifetime budget was spent"}
+            </div>
+          </section>
+        )}
+      </div>
+
+      {/* ------------------------------------------------------- live: stays board */}
+      <div ref={stayRef} id="stay-board">
+        {stayError && (
+          <section className="board-error flash" role="alert" key="serr">
+            <b>/// </b>
+            The board refused this query — {stayError}
+          </section>
+        )}
+        {stay && !stayError && (
+          <section className="board flash" key={`st-${stay.fetched_on}-${stay.cached}`}>
+            <div className="board-head">
+              <Tags search={stay} />
+              <div className="cap mini board-capline">
+                {stay.count} stays on the “{stay.q}” board
+              </div>
+            </div>
+            <div className="stay-grid">
+              {stay.properties.map((s, i) => (
+                <StayCard s={s} cur={sCur} key={`${s.name}-${i}`} />
+              ))}
+            </div>
+            <div className="board-foot mini dim">
+              {stay.mock
+                ? "sample data — served from the captured fixture, no live call was made"
+                : stay.cached
+                  ? "served from cache — indexed the day it was fetched"
+                  : "live results via SerpApi — one call of the lifetime budget was spent"}
+            </div>
+          </section>
+        )}
+      </div>
+
+      {/* ------------------------------------------------------- legacy result */}
       {/* key remounts the whole slab per prediction so `flash` replays */}
       <div ref={resultRef} id="result">
         {result === null ? null : result.kind === "error" ? (
@@ -615,7 +1369,7 @@ export default function Home() {
           <b>Vovage</b> — fare &amp; rate intelligence
         </span>
         <span className="mini">
-          Estimates, not quotes. Neural models served on-device.
+          Live boards through SerpApi · models served on-device. Estimates, not quotes.
         </span>
       </footer>
     </>
