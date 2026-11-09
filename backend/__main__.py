@@ -1,12 +1,14 @@
 from flask import Flask
 from .src.routes.flights import flight_bp
 from .src.routes.hotels import hotels_bp
+from .src.routes.packages import package_bp
 from .src.routes.serp import serp_bp
 
 app = Flask(__name__)
 
 app.register_blueprint(flight_bp)
 app.register_blueprint(hotels_bp)
+app.register_blueprint(package_bp)
 app.register_blueprint(serp_bp)
 
 

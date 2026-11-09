@@ -16,6 +16,7 @@ import {
   searchAirports,
   searchLiveFlights,
   searchLiveStays,
+  searchPackages,
   type AirportHit,
   type Budget,
   type FlightOption,
@@ -24,6 +25,9 @@ import {
   type FlightSearch,
   type HotelOptions,
   type LiveFeed,
+  type PackageOffer,
+  type PackageSearch,
+  type PackageTier,
   type StayOption,
   type StaySearch,
 } from "@/lib/api";
@@ -206,6 +210,7 @@ function AirportField({
   const [text, setText] = useState(value?.code ?? "");
   const [hits, setHits] = useState<AirportHit[]>([]);
   const [open, setOpen] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
     if (value) setText(value.code);
@@ -215,18 +220,25 @@ function AirportField({
     const q = text.trim();
     if (!q || (value && q.toUpperCase() === value.code.toUpperCase())) {
       setHits([]);
+      setOpen(false);
+      setErr(null);
       return;
     }
     let alive = true;
     const t = setTimeout(() => {
       searchAirports(q)
         .then((r) => {
-          if (alive) {
-            setHits(r.results);
-            setOpen(true);
-          }
+          if (!alive) return;
+          setHits(r.results);
+          setOpen(true);
+          setErr(r.results.length ? null : `no airports match “${q}”`);
         })
-        .catch(() => {});
+        .catch((e) => {
+          if (!alive) return;
+          setHits([]);
+          setOpen(true);
+          setErr((e as Error).message || "airport lookup failed");
+        });
     }, 140);
     return () => {
       alive = false;
@@ -289,6 +301,11 @@ function AirportField({
               </span>
             </div>
           ))}
+        </div>
+      )}
+      {open && hits.length === 0 && err && (
+        <div className="ac-list ac-note display" role="status">
+          /// {err}
         </div>
       )}
     </Field>
@@ -369,7 +386,7 @@ function Tags({ search }: { search: { mock?: boolean; cached?: boolean; fetched_
 
 /* ---------------------------------------------------------------- page types */
 
-type Panel = "flights" | "stays" | "predict";
+type Panel = "flights" | "stays" | "packages" | "predict";
 type Result =
   | { kind: "flight"; price: number; meta: [string, string][] }
   | { kind: "stay"; price: number; meta: [string, string][] }
@@ -491,6 +508,114 @@ function StayCard({ s, cur }: { s: StayOption; cur: string }) {
   ) : body;
 }
 
+/* ---------------------------------------------------------------- package tier card */
+
+const TIER_COPY: Record<PackageTier, { label: string; blurb: string }> = {
+  saver: { label: "Saver", blurb: "cheapest fare + cheapest stay" },
+  balanced: { label: "Balanced", blurb: "best-rated stay that still fits the budget" },
+  comfort: { label: "Comfort", blurb: "best-rated stay, even if it pushes the total" },
+};
+
+function PackageCard({
+  p,
+  cur,
+  loc,
+  budget,
+}: {
+  p: PackageOffer;
+  cur: string;
+  loc: string;
+  budget: number;
+}) {
+  const f = p.flight;
+  const s = p.stay;
+  const money = (v: number) => `${cur}${Math.round(v).toLocaleString(loc)}`;
+  return (
+    <article className={`pkg-card ${p.tier}${p.within_budget ? "" : " over"}`}>
+      <header className="pkg-head">
+        <div>
+          <div className="cap mini">{TIER_COPY[p.tier].label}</div>
+          <span className="pkg-blurb">{TIER_COPY[p.tier].blurb}</span>
+        </div>
+        <span className={`tag${p.within_budget ? " live" : ""}`}>
+          {p.within_budget ? "within budget" : "over budget"}
+        </span>
+      </header>
+
+      <div className="pkg-total">
+        <Money value={p.total} cur={cur} locale={loc} />
+        <span className="mini dim">all-in · {p.flight.nonstop ? "non-stop" : `${p.flight.stops} stop${p.flight.stops === 1 ? "" : "s"}`}</span>
+      </div>
+
+      <div className="pkg-split mini">
+        <span>flight <b>{money(p.breakdown.flight)}</b></span>
+        <span className="dot">+</span>
+        <span>stay <b>{money(p.breakdown.hotel)}</b></span>
+      </div>
+      <div className={`pkg-note mini${p.within_budget ? " dim" : " over"}`}>
+        {p.within_budget
+          ? `${money(p.headroom ?? 0)} left under the ${money(budget)} budget`
+          : `${money(p.over_by ?? 0)} over the ${money(budget)} budget`}
+      </div>
+
+      <div className="pkg-leg">
+        <div className="cap mini">Flight</div>
+        <div className="pkg-flight">
+          {f.airline_logo ? (
+            <img className="itin-logo" src={f.airline_logo} alt="" loading="lazy" />
+          ) : null}
+          <div>
+            <div className="pkg-flight-route">
+              <b>{f.dep_code ?? "?"}</b>
+              <span className="itin-arrow">→</span>
+              <b>{f.arr_code ?? "?"}</b>
+              <span className="mini dim">
+                {" "}{clockOf(f.dep_time ?? "")} – {clockOf(f.arr_time ?? "")}
+              </span>
+            </div>
+            <div className="mini dim">
+              {f.airline ?? "—"} · {f.nonstop
+                ? "non-stop"
+                : `${f.stops} stop${f.stops === 1 ? "" : "s"}`} · {hm(f.duration)}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="pkg-leg">
+        <div className="cap mini">Stay</div>
+        <div className="pkg-stay">
+          {s.image ? <img src={s.image} alt="" loading="lazy" /> : null}
+          <div>
+            <div className="pkg-stay-name">
+              {s.stars ? (
+                <span className="stars" aria-label={`${s.stars}-star`}>
+                  {"★".repeat(Math.min(5, s.stars))}
+                </span>
+              ) : null}
+              <b>{s.name ?? "—"}</b>
+              {s.rating ? <span className="tag hot">{s.rating.toFixed(1)}</span> : null}
+            </div>
+            <div className="mini dim">
+              {s.type ?? "stay"}{s.area ? ` · near ${s.area}` : ""} · {s.nightly_note}
+            </div>
+            <div className="chiprow">
+              {s.amenities.slice(0, 4).map((a) => (
+                <span className="chip mini" key={a}>{a}</span>
+              ))}
+            </div>
+            {s.link ? (
+              <a className="pkg-link mini" href={s.link} target="_blank" rel="noreferrer">
+                open listing ↗
+              </a>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    </article>
+  );
+}
+
 /* ---------------------------------------------------------------- default form values */
 
 function flightHuntDefaults() {
@@ -518,6 +643,21 @@ function stayHuntDefaults() {
   };
 }
 
+function packageHuntDefaults() {
+  return {
+    origin: null as AirportHit | null,
+    destination: null as AirportHit | null,
+    q: "",
+    outbound: daystamp(9),
+    ret: daystamp(14),
+    budget: "60000",
+    cabin: "economy",
+    adults: 2,
+    kids: 0,
+    feed: "replay" as LiveFeed,
+  };
+}
+
 /* ---------------------------------------------------------------- page */
 
 export default function Home() {
@@ -536,6 +676,13 @@ export default function Home() {
   const [sPending, setSPending] = useState(false);
   const [sh, setSh] = useState(stayHuntDefaults);
   const stayRef = useRef<HTMLDivElement>(null);
+
+  /* ----- package builder (flight + stay, priced as tiers) ----- */
+  const [pkg, setPkg] = useState<PackageSearch | null>(null);
+  const [pkgError, setPkgError] = useState<string | null>(null);
+  const [pPending, setPPending] = useState(false);
+  const [pk, setPk] = useState(packageHuntDefaults);
+  const pkgRef = useRef<HTMLDivElement>(null);
 
   /* ----- legacy predict console ----- */
   const [predictKind, setPredictKind] = useState<"flights" | "stays">("flights");
@@ -557,6 +704,7 @@ export default function Home() {
 
   const patchFh = (kv: Partial<typeof fh>) => setFh((s) => ({ ...s, ...kv }));
   const patchSh = (kv: Partial<typeof sh>) => setSh((s) => ({ ...s, ...kv }));
+  const patchPk = (kv: Partial<typeof pk>) => setPk((s) => ({ ...s, ...kv }));
 
   /* ----- legacy flight state ----- */
   const [flightPred, setFlightPred] = useState<FlightQuery>({
@@ -668,6 +816,54 @@ export default function Home() {
     }
   };
 
+  /* ----- live submit: packages ----- */
+  const runPackages = async () => {
+    if (!pk.origin || !pk.destination) {
+      setPkgError("pick both airports from the dropdown first");
+      return;
+    }
+    if (!pk.q.trim()) {
+      setPkgError("type a destination for the stay board");
+      return;
+    }
+    const tripBudget = Number(pk.budget);
+    if (!Number.isFinite(tripBudget) || tripBudget <= 0) {
+      setPkgError("enter a positive package budget in rupees");
+      return;
+    }
+    if (pk.feed === "live" && budget && budget.remaining <= 0) {
+      setPkgError(
+        "lifetime serpapi budget is spent — switch the feed to REPLAY (cached results stay available)",
+      );
+      return;
+    }
+    setPPending(true);
+    setPkgError(null);
+    try {
+      const res = await searchPackages({
+        origin: pk.origin.code,
+        destination: pk.destination.code,
+        q: pk.q.trim(),
+        outbound_date: pk.outbound,
+        return_date: pk.ret,
+        budget: tripBudget,
+        travel_class: pk.cabin,
+        adults: pk.adults,
+        children: pk.kids,
+        feed: pk.feed,
+      });
+      setPkg(res);
+      setBudget(res.budget);
+      requestAnimationFrame(() =>
+        pkgRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }),
+      );
+    } catch (e) {
+      setPkgError((e as Error).message);
+    } finally {
+      setPPending(false);
+    }
+  };
+
   /* ----- legacy submit ----- */
   const submit = async () => {
     setPending(true);
@@ -758,7 +954,7 @@ export default function Home() {
 
   return (
     <>
-      {(pending || fPending || sPending) && <div className="pending-bar" />}
+      {(pending || fPending || sPending || pPending) && <div className="pending-bar" />}
       <div className="grain" />
 
       <Chrome />
@@ -800,6 +996,12 @@ export default function Home() {
             onClick={() => setPanel("stays")}
           >
             Stays
+          </button>
+          <button
+            className={`console-tab${panel === "packages" ? " active" : ""}`}
+            onClick={() => setPanel("packages")}
+          >
+            Packages
           </button>
           <button
             className={`console-tab${panel === "predict" ? " active" : ""}`}
@@ -997,6 +1199,133 @@ export default function Home() {
                   </p>
                   <button className="launch-btn" onClick={runStays} disabled={sPending}>
                     {sPending ? "Reading the board…" : "Search stays"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ================= package builder ================= */}
+          {panel === "packages" && (
+            <div className="form-grid">
+              <AirportField
+                n="01"
+                cap="Fly from"
+                value={pk.origin}
+                onPick={(a) => patchPk({ origin: a })}
+              />
+              <button
+                className="swap"
+                onClick={() =>
+                  patchPk({ origin: pk.destination, destination: pk.origin })
+                }
+                aria-label="Swap origin and destination"
+              >
+                ⇄
+              </button>
+              <AirportField
+                n="02"
+                cap="Fly to"
+                value={pk.destination}
+                onPick={(a) => patchPk({ destination: a })}
+              />
+
+              <Field n="03" cap="Stay at" className="span6"
+                aside={pk.q ? "google hotels" : "03"}
+              >
+                <input
+                  className="control display"
+                  value={pk.q}
+                  placeholder="Goa, Bali, Shimla —"
+                  onChange={(e) => patchPk({ q: e.target.value })}
+                />
+              </Field>
+              <Field n="04" cap="All-in budget" className="span6"
+                aside={`${symbol("INR")} total`}
+              >
+                <input
+                  className="control display"
+                  type="number"
+                  min={1}
+                  step={1000}
+                  value={pk.budget}
+                  onChange={(e) => patchPk({ budget: e.target.value })}
+                />
+              </Field>
+
+              <Field n="05" cap="Departs" className="span4">
+                <input
+                  type="date"
+                  value={pk.outbound}
+                  min={daystamp(0)}
+                  onChange={(e) => patchPk({ outbound: e.target.value })}
+                />
+              </Field>
+              <Field n="06" cap="Returns" className="span4">
+                <input
+                  type="date"
+                  value={pk.ret}
+                  min={pk.outbound || daystamp(0)}
+                  onChange={(e) => patchPk({ ret: e.target.value })}
+                />
+              </Field>
+              <Field n="07" cap="Adults" className="stepper span2">
+                <Stepper
+                  value={pk.adults}
+                  onChange={(v) => patchPk({ adults: v })}
+                  min={1}
+                  max={8}
+                />
+              </Field>
+              <Field n="08" cap="Children" className="stepper span2">
+                <Stepper
+                  value={pk.kids}
+                  onChange={(v) => patchPk({ kids: v })}
+                  min={0}
+                  max={8}
+                />
+              </Field>
+
+              <Field n="09" cap="Cabin" className="span4">
+                <div className="seg" role="radiogroup">
+                  {[
+                    ["economy", "Economy"],
+                    ["premium_economy", "Premium"],
+                    ["business", "Business"],
+                    ["first", "First"],
+                  ].map(([v, label]) => (
+                    <button
+                      key={v}
+                      type="button"
+                      role="radio"
+                      aria-checked={pk.cabin === v}
+                      className={pk.cabin === v ? "on" : ""}
+                      onClick={() => patchPk({ cabin: v })}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </Field>
+              <Field n="10" cap="Fares feed" className="span4"
+                aside={pk.feed === "live" ? "spends budget" : "zero cost"}
+              >
+                <Seg
+                  value={pk.feed}
+                  onChange={(v) => patchPk({ feed: v as LiveFeed })}
+                  options={["live", "replay"]}
+                />
+              </Field>
+
+              <div className="launch" style={{ gridColumn: "span 4" }}>
+                <div className="launch-inner" style={{ padding: "26px 0 20px" }}>
+                  <p className="hint">
+                    {pk.feed === "live"
+                      ? "At most two real calls — one fare board, one stay board. Cache-first."
+                      : "Both boards replay from captured searches — zero calls spent."}
+                  </p>
+                  <button className="launch-btn" onClick={runPackages} disabled={pPending}>
+                    {pPending ? "Building packages…" : "Build packages"}
                   </button>
                 </div>
               </div>
@@ -1319,6 +1648,67 @@ export default function Home() {
                 : stay.cached
                   ? "served from cache — indexed the day it was fetched"
                   : "live results via SerpApi — one call of the lifetime budget was spent"}
+            </div>
+          </section>
+        )}
+      </div>
+
+      {/* ------------------------------------------------------- live: package board */}
+      <div ref={pkgRef} id="package-board">
+        {pkgError && (
+          <section className="board-error flash" role="alert" key="pkgerr">
+            <b>/// </b>
+            The package builder refused this query — {pkgError}
+          </section>
+        )}
+        {pkg && !pkgError && (
+          <section
+            className="board flash"
+            key={`pk-${pkg.boards.flight.fetched_on}-${pkg.boards.hotel.fetched_on}-${pkg.packages.length}`}
+          >
+            <div className="board-head">
+              <div className="board-tags">
+                <span className="tag live">flight + stay · one all-in price</span>
+                <span className="tag dim">
+                  {pkg.nights} nights · {pkg.party.travellers} traveller
+                  {pkg.party.travellers === 1 ? "" : "s"} · budget{" "}
+                  {symbol(pkg.currency)}{pkg.trip_budget.toLocaleString(localeOf(pkg.currency))}
+                </span>
+              </div>
+              <div className="pkg-intro">
+                <div>
+                  <div className="cap mini">the “{pkg.q}” board</div>
+                  <h2 className="pkg-title">Three ways to take this trip.</h2>
+                </div>
+                <div className="pkg-board-meta">
+                  <div>
+                    <div className="cap mini">flight board</div>
+                    <Tags search={pkg.boards.flight} />
+                  </div>
+                  <div>
+                    <div className="cap mini">stay board</div>
+                    <Tags search={pkg.boards.hotel} />
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="pkg-grid">
+              {pkg.packages.map((p) => (
+                <PackageCard
+                  key={p.tier}
+                  p={p}
+                  cur={symbol(pkg.currency)}
+                  loc={localeOf(pkg.currency)}
+                  budget={pkg.trip_budget}
+                />
+              ))}
+            </div>
+            <div className="board-foot mini dim">
+              {pkg.boards.flight.mock && pkg.boards.hotel.mock
+                ? "sample data — both boards replayed from captured fixtures, no live call was made"
+                : pkg.boards.flight.cached && pkg.boards.hotel.cached
+                  ? "both boards served from cache — no calls spent"
+                  : "live boards via SerpApi — only uncached legs spend from the lifetime budget"}
             </div>
           </section>
         )}

@@ -10,6 +10,8 @@ flight_bp = Blueprint("flight", __name__, url_prefix="/api/flight")
 
 _DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _CABINS = ["economy", "premium_economy", "business", "first"]
+# SerpApi wants an integer travel_class, not the human string
+_CLASS_ID = {"economy": 1, "premium_economy": 2, "business": 3, "first": 4}
 
 
 def _truthy(value):
@@ -92,7 +94,7 @@ def search():
         "arrival_id": destination,
         "outbound_date": outbound,
         "return_date": return_date,
-        "travel_class": cabin,
+        "travel_class": _CLASS_ID[cabin],
         "adults": adults,
         "children": children,
     }

@@ -966,6 +966,14 @@ input[type="date"] {
   background: var(--hover);
 }
 
+/* zero-hit / failure note — the dropdown should never fail silently */
+.ac-note {
+  padding: 13px 18px;
+  font-size: 12.5px;
+  letter-spacing: 0.03em;
+  color: var(--ink-faint);
+}
+
 .ac-code {
   font-family: var(--font-display), sans-serif;
   font-weight: 700;
@@ -1451,5 +1459,230 @@ input[type="date"] {
   .console-tab {
     flex: 1 1 30%;
     border-top: 1px solid var(--rule);
+  }
+}
+
+/* ------------------------------------------------ package tiers (flight + stay) */
+
+.pkg-intro {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: clamp(24px, 4vw, 70px);
+  flex-wrap: wrap;
+  padding-bottom: 16px;
+}
+
+.pkg-title {
+  font-family: var(--font-display), sans-serif;
+  font-weight: 700;
+  font-size: clamp(34px, 4.6vw, 62px);
+  line-height: 0.95;
+  letter-spacing: -0.04em;
+  margin-top: 8px;
+}
+
+.pkg-board-meta {
+  display: flex;
+  gap: clamp(20px, 3vw, 42px);
+  flex-wrap: wrap;
+}
+
+.pkg-board-meta .board-tags {
+  margin-top: 8px;
+}
+
+.pkg-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1px;
+  background: var(--rule);
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+  margin-top: 30px;
+}
+
+.pkg-card {
+  background: var(--bg);
+  padding: 26px clamp(18px, 2.2vw, 30px) 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  position: relative;
+  transition: background 0.25s, box-shadow 0.25s;
+}
+
+.pkg-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--accent);
+  opacity: 0;
+  transition: opacity 0.25s;
+}
+
+.pkg-card:hover {
+  background: var(--hover);
+}
+
+.pkg-card:hover::before,
+.pkg-card.balanced::before {
+  opacity: 1;
+}
+
+.pkg-card.balanced {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--accent) 8%, var(--bg)),
+    var(--bg) 55%
+  );
+}
+
+.pkg-card.over::before {
+  background: #c77b3f;
+}
+
+.pkg-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 18px;
+}
+
+.pkg-blurb {
+  display: block;
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--ink-faint);
+  line-height: 1.5;
+  max-width: 26ch;
+}
+
+.pkg-total {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.pkg-total .result-price {
+  font-size: clamp(36px, 4vw, 56px);
+}
+
+.pkg-split {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+}
+
+.pkg-split b {
+  color: var(--ink);
+}
+
+.pkg-split .dot {
+  color: var(--accent);
+}
+
+.pkg-note.over {
+  color: #c77b3f;
+}
+
+.pkg-leg {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border-top: 1px solid var(--rule);
+  padding-top: 16px;
+}
+
+.pkg-flight {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
+
+.pkg-flight-route {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  font-family: var(--font-display), sans-serif;
+  font-size: clamp(21px, 2vw, 26px);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.pkg-flight-route .itin-arrow {
+  color: var(--accent);
+  font-size: 0.62em;
+  transform: translateY(-3px);
+}
+
+.pkg-flight-route .mini {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+}
+
+.pkg-stay {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.pkg-stay img {
+  width: 84px;
+  height: 84px;
+  object-fit: cover;
+  flex: none;
+  border-radius: 2px;
+}
+
+.pkg-stay > div {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.pkg-stay-name {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 15.5px;
+  line-height: 1.35;
+}
+
+.pkg-stay-name .tag {
+  padding: 3px 7px 4px;
+  font-size: 9px;
+}
+
+.pkg-link {
+  align-self: flex-start;
+  color: var(--accent-hot);
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+@media (max-width: 900px) {
+  .pkg-intro {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
+@media (max-width: 560px) {
+  .pkg-head {
+    flex-direction: column;
+    gap: 12px;
+  }
+  .pkg-stay img {
+    width: 64px;
+    height: 64px;
   }
 }
