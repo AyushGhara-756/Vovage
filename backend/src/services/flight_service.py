@@ -1,38 +1,38 @@
-from ...model.Flights import FlightNetwork
+from ...model.Flights import load_artifacts, predict_price
 import torch
 from pathlib import Path
 
+REQUIRED = [
+    "airline", "source_city", "departure_time", "stops", "arrival_time",
+    "destination_city", "class", "duration", "days_left",
+]
+
+
 class FlightService:
     def __init__(self):
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-        model_path = Path(__file__).resolve().parent.parent.parent / "model" / "flight_price_model_01.pth"
-
-        self.model = FlightNetwork()
-        self.model.load_state_dict(
-            torch.load(model_path, map_location=self.device)
-        )
-
+        self.device = torch.device("cpu")
+        self.model, self.scaler, self.meta = load_artifacts()
         self.model.to(self.device)
-        self.model.eval()
 
-    def predict(self, features):
-        if len(features) != 37:
-            raise ValueError("Expected 37 features")
+    def predict(self, rows):
+        """rows: list of raw search dicts (or a single dict)."""
+        if isinstance(rows, dict):
+            rows = [rows]
 
-        x = torch.tensor(
-            features,
-            dtype=torch.float32
-        ).reshape(1, 37).to(self.device)
+        if not all(isinstance(r, dict) for r in rows):
+            raise ValueError("each record must be a JSON object of search fields")
 
-        with torch.no_grad():
-            prediction = self.model(x)
+        missing = sorted(
+            {c for r in rows for c in REQUIRED if c not in r}
+        )
+        if missing:
+            raise ValueError(f"missing fields: {missing}")
 
-        return float(prediction.item())
+        return predict_price(self.model, self.scaler, self.meta, rows)
 
 
-def predict(features):
-    return flight_service.predict(features)
+def predict(rows):
+    return flight_service.predict(rows)
 
 
 flight_service = FlightService()
