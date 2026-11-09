@@ -1,0 +1,9 @@
+{
+  "engine": "google_flights",
+  "departure_id": "DEL",
+  "arrival_id": "BOM",
+  "currency": "USD",
+  "type": 2,
+  "outbound_date": "2026-11-10",
+  "api_key": "key-here-from-env"
+}
