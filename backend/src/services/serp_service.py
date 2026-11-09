@@ -16,6 +16,7 @@ Ground rules baked into this module:
 
 import hashlib
 import json
+import logging
 import os
 import time
 import urllib.error
@@ -38,6 +39,8 @@ FIXTURES = {
 MAX_CALLS = 5
 API_URL = "https://serpapi.com/search.json"
 TIMEOUT = 60
+
+_IATA_WARNED = False  # one-time warning flag for a missing/corrupt dataset
 
 
 class SerpError(Exception):
@@ -137,7 +140,14 @@ def _serp_request(kind, params):
         with urllib.request.urlopen(url, timeout=TIMEOUT) as resp:
             raw = json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
-        raise SerpError(f"serpapi returned HTTP {exc.code}") from exc
+        detail = ""
+        try:
+            body = json.loads(exc.read().decode("utf-8"))
+            detail = str(body.get("error", ""))
+        except Exception:
+            pass
+        raise SerpError(f"serpapi returned HTTP {exc.code}"
+                        + (f" — {detail}" if detail else "")) from exc
     except (urllib.error.URLError, TimeoutError) as exc:
         raise SerpError("could not reach serpapi") from exc
 
@@ -320,11 +330,18 @@ _AIRPORT_INDEX = None
 
 
 def _airport_index():
-    global _AIRPORT_INDEX
+    global _AIRPORT_INDEX, _IATA_WARNED
     if _AIRPORT_INDEX is None:
         try:
             raw = json.loads(IATA_FILE.read_text(encoding="utf-8"))
-        except (FileNotFoundError, json.JSONDecodeError, OSError):
+        except (FileNotFoundError, json.JSONDecodeError, OSError) as exc:
+            if not _IATA_WARNED:
+                logging.getLogger(__name__).warning(
+                    "airport dataset %s is unreadable (%s) — "
+                    "airport autocomplete will return no results",
+                    IATA_FILE, exc,
+                )
+                _IATA_WARNED = True
             _AIRPORT_INDEX = []
         else:
             _AIRPORT_INDEX = [

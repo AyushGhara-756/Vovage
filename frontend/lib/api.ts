@@ -2,8 +2,13 @@ const BASE = "/api";
 
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${BASE}${path}`, { cache: "no-store" });
-  if (!res.ok) throw new Error(`request failed (${res.status})`);
-  return res.json() as Promise<T>;
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const msg =
+      (data as { error?: string }).error ?? `request failed (${res.status})`;
+    throw new Error(msg.split(";")[0]);
+  }
+  return data as T;
 }
 
 async function post<T>(path: string, body: unknown): Promise<T> {
@@ -236,4 +241,92 @@ export const searchLiveStays = (p: {
   });
   if (p.feed === "replay") qs.set("mock", "1");
   return get<StaySearch>(`/hotel/search?${qs}`);
+};
+
+/* ------------------------------------------------------------------ packages */
+
+export type PackageFlight = {
+  dep_time: string | null;
+  arr_time: string | null;
+  dep_code: string | null;
+  arr_code: string | null;
+  airline: string | null;
+  nonstop: boolean;
+  stops: number;
+  duration: number | null;
+  airline_logo: string | null;
+};
+
+export type PackageStay = {
+  name: string | null;
+  type: string | null;
+  link: string | null;
+  rating: number | null;
+  reviews: number | null;
+  class_num: number | null;
+  stars: number;
+  amenities: string[];
+  image: string | null;
+  area: string | null;
+  hotel_total: number;
+  per_night_estimate: boolean;
+  nightly_note: string;
+};
+
+export type PackageTier = "saver" | "balanced" | "comfort";
+
+export type PackageOffer = {
+  tier: PackageTier;
+  total: number;
+  breakdown: { flight: number; hotel: number };
+  within_budget: boolean;
+  headroom: number | null;
+  over_by: number | null;
+  flight: PackageFlight;
+  stay: PackageStay;
+};
+
+export type PackageBoard = {
+  mock: boolean;
+  cached: boolean;
+  fetched_on: string;
+};
+
+export type PackageSearch = {
+  currency: string;
+  budget: Budget;
+  trip_budget: number;
+  nights: number;
+  party: { adults: number; children: number; travellers: number };
+  q: string | null;
+  trip: FlightSearch["trip"] | null;
+  packages: PackageOffer[];
+  boards: { flight: PackageBoard; hotel: PackageBoard };
+};
+
+export const searchPackages = (p: {
+  origin: string;
+  destination: string;
+  q: string;
+  outbound_date: string;
+  return_date: string;
+  budget: number;
+  travel_class: string;
+  adults: number;
+  children: number;
+  feed: LiveFeed;
+}) => {
+  const qs = new URLSearchParams({
+    origin: p.origin,
+    destination: p.destination,
+    q: p.q,
+    outbound_date: p.outbound_date,
+    return_date: p.return_date,
+    budget: String(p.budget),
+    cabin: p.travel_class,
+    adults: String(p.adults),
+    children: String(p.children),
+    feed: p.feed,
+  });
+  return get<PackageSearch>(`/package/search?${qs}`);
 };
