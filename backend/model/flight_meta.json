@@ -1,0 +1,109 @@
+{
+  "columns": [
+    "duration",
+    "days_left",
+    "airline_AirAsia",
+    "airline_Air_India",
+    "airline_GO_FIRST",
+    "airline_Indigo",
+    "airline_SpiceJet",
+    "airline_Vistara",
+    "source_city_Bangalore",
+    "source_city_Chennai",
+    "source_city_Delhi",
+    "source_city_Hyderabad",
+    "source_city_Kolkata",
+    "source_city_Mumbai",
+    "departure_time_Afternoon",
+    "departure_time_Early_Morning",
+    "departure_time_Evening",
+    "departure_time_Late_Night",
+    "departure_time_Morning",
+    "departure_time_Night",
+    "stops_one",
+    "stops_two_or_more",
+    "stops_zero",
+    "arrival_time_Afternoon",
+    "arrival_time_Early_Morning",
+    "arrival_time_Evening",
+    "arrival_time_Late_Night",
+    "arrival_time_Morning",
+    "arrival_time_Night",
+    "destination_city_Bangalore",
+    "destination_city_Chennai",
+    "destination_city_Delhi",
+    "destination_city_Hyderabad",
+    "destination_city_Kolkata",
+    "destination_city_Mumbai",
+    "class_Business",
+    "class_Economy"
+  ],
+  "cat_cols": [
+    "airline",
+    "source_city",
+    "departure_time",
+    "stops",
+    "arrival_time",
+    "destination_city",
+    "class"
+  ],
+  "options": {
+    "airline": [
+      "AirAsia",
+      "Air_India",
+      "GO_FIRST",
+      "Indigo",
+      "SpiceJet",
+      "Vistara"
+    ],
+    "source_city": [
+      "Bangalore",
+      "Chennai",
+      "Delhi",
+      "Hyderabad",
+      "Kolkata",
+      "Mumbai"
+    ],
+    "departure_time": [
+      "Afternoon",
+      "Early_Morning",
+      "Evening",
+      "Late_Night",
+      "Morning",
+      "Night"
+    ],
+    "stops": [
+      "one",
+      "two_or_more",
+      "zero"
+    ],
+    "arrival_time": [
+      "Afternoon",
+      "Early_Morning",
+      "Evening",
+      "Late_Night",
+      "Morning",
+      "Night"
+    ],
+    "destination_city": [
+      "Bangalore",
+      "Chennai",
+      "Delhi",
+      "Hyderabad",
+      "Kolkata",
+      "Mumbai"
+    ],
+    "class": [
+      "Business",
+      "Economy"
+    ]
+  },
+  "num_cols": [
+    "duration",
+    "days_left"
+  ],
+  "duration_min": 0.83,
+  "duration_max": 49.83,
+  "days_left_min": 1,
+  "days_left_max": 49
+}
