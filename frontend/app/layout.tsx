@@ -2,6 +2,10 @@ import type { Metadata, Viewport } from "next";
 import { Inter, Playfair_Display } from "next/font/google";
 import "./globals.css";
 
+// date-input defaults are computed at request time; a static prerender would
+// bake build-day dates in and mismatch hydration on any later day
+export const dynamic = "force-dynamic";
+
 const playfair = Playfair_Display({
   subsets: ["latin"],
   variable: "--font-display",

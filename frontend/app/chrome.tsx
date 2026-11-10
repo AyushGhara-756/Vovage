@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 export function Chrome() {
   const [scrolled, setScrolled] = useState(false);
   const [theme, setTheme] = useState<"dark" | "light">("dark");
+  const [toast, setToast] = useState<string | null>(null);
 
   useEffect(() => {
     setScrolled(window.scrollY > 24);
@@ -18,6 +19,12 @@ export function Chrome() {
     if (current === "light" || current === "dark") setTheme(current);
   }, []);
 
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 3200);
+    return () => clearTimeout(t);
+  }, [toast]);
+
   const flip = () => {
     const next = theme === "dark" ? "light" : "dark";
     document.documentElement.dataset.theme = next;
@@ -29,9 +36,13 @@ export function Chrome() {
     setTheme(next);
   };
 
+  const signin = () => {
+    setToast("Sign-in is coming soon — you can search and plan freely meanwhile.");
+  };
+
   return (
     <header className={`chrome${scrolled ? " scrolled" : ""}`}>
-      <a href="#" className="wordmark">
+      <a href="#" className="wordmark" aria-label="Vovage home">
         VOVAGE<i>.</i>
       </a>
       <nav className="chrome-right">
@@ -40,6 +51,7 @@ export function Chrome() {
           className="signin-btn"
           type="button"
           aria-label="Sign in to Vovage"
+          onClick={signin}
         >
           Sign in
         </button>
@@ -47,12 +59,18 @@ export function Chrome() {
           className="theme-toggle"
           onClick={flip}
           aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
+          aria-pressed={theme === "light"}
         >
           <span className="phase hollow" />
           <span className="knob" />
           <span className="phase" style={{ background: "var(--accent)" }} />
         </button>
       </nav>
+      {toast && (
+        <div className="toast display" role="status" aria-live="polite">
+          {toast}
+        </div>
+      )}
     </header>
   );
 }
