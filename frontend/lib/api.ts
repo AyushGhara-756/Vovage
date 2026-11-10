@@ -84,14 +84,7 @@ export const predictStay = (query: HotelQuery) =>
 
 export const fetchStayOptions = () => get<HotelOptions>("/hotel/options");
 
-/* ------------------------------------------------------------------ live board (SerpApi) */
-
-export type Budget = {
-  max: number;
-  used: number;
-  remaining: number;
-  calls: { ts: number; kind: string; key: string }[];
-};
+/* ------------------------------------------------------------------ live search (SerpApi) */
 
 export type AirportHit = {
   code: string;
@@ -99,8 +92,6 @@ export type AirportHit = {
   city: string;
   country: string;
 };
-
-export const fetchBudget = () => get<Budget>("/serp/budget");
 
 export const searchAirports = (q: string) =>
   get<{ results: AirportHit[] }>(
@@ -143,10 +134,8 @@ export type Insights = {
 
 export type FlightSearch = {
   currency: string;
-  mock: boolean;
   cached: boolean;
   fetched_on: string;
-  budget: Budget;
   insights: Insights | null;
   departures: FlightOption[];
   returns: FlightOption[];
@@ -188,16 +177,12 @@ export type StayOption = {
 
 export type StaySearch = {
   currency: string;
-  mock: boolean;
   cached: boolean;
   fetched_on: string;
-  budget: Budget;
   q: string;
   count: number;
   properties: StayOption[];
 };
-
-export type LiveFeed = "live" | "replay";
 
 export const searchLiveFlights = (p: {
   origin: string;
@@ -207,7 +192,6 @@ export const searchLiveFlights = (p: {
   travel_class: string;
   adults: number;
   children: number;
-  feed: LiveFeed;
 }) => {
   const qs = new URLSearchParams({
     origin: p.origin,
@@ -218,7 +202,6 @@ export const searchLiveFlights = (p: {
     adults: String(p.adults),
     children: String(p.children),
   });
-  if (p.feed === "replay") qs.set("mock", "1");
   return get<FlightSearch>(`/flight/search?${qs}`);
 };
 
@@ -229,7 +212,6 @@ export const searchLiveStays = (p: {
   adults: number;
   children: number;
   sort_by: string;
-  feed: LiveFeed;
 }) => {
   const qs = new URLSearchParams({
     q: p.q,
@@ -239,7 +221,6 @@ export const searchLiveStays = (p: {
     children: String(p.children),
     sort_by: p.sort_by,
   });
-  if (p.feed === "replay") qs.set("mock", "1");
   return get<StaySearch>(`/hotel/search?${qs}`);
 };
 
@@ -287,14 +268,13 @@ export type PackageOffer = {
 };
 
 export type PackageBoard = {
-  mock: boolean;
   cached: boolean;
   fetched_on: string;
 };
 
 export type PackageSearch = {
   currency: string;
-  budget: Budget;
+  budget: number;
   trip_budget: number;
   nights: number;
   party: { adults: number; children: number; travellers: number };
@@ -314,7 +294,6 @@ export const searchPackages = (p: {
   travel_class: string;
   adults: number;
   children: number;
-  feed: LiveFeed;
 }) => {
   const qs = new URLSearchParams({
     origin: p.origin,
@@ -326,7 +305,6 @@ export const searchPackages = (p: {
     cabin: p.travel_class,
     adults: String(p.adults),
     children: String(p.children),
-    feed: p.feed,
   });
   return get<PackageSearch>(`/package/search?${qs}`);
 };

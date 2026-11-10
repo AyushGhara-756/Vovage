@@ -1,13 +1,13 @@
 """Dev smoke test for the packages layer.
 
-Pure logic tests run over synthetic shaped payloads; the route tests run
-on mock replays (zero real SerpApi calls).The real ledger is snapshotted
-at start and restored byte-identically at the end, so running this test
-never costs or misreports a call.
+Pure logic tests run over synthetic shaped payloads; the route tests
+exercise the live path with a stubbed urlopen (no real SerpApi calls)
+and a scratch cache dir, restored pristine at the end.
 """
 import json
 import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -18,18 +18,14 @@ from backend.src.services.package_service import (  # noqa: E402
     PackageError, build_packages,
 )
 
-STATE = serp_service.STATE_FILE
-CACHE = serp_service.CACHE_DIR
 client = app.test_client()
 fails = []
 
-_state_snapshot = STATE.read_text(encoding="utf-8") if STATE.exists() else None
-_used0 = 0
-if _state_snapshot is not None:
-    try:
-        _used0 = len(json.loads(_state_snapshot)["calls"])
-    except (KeyError, ValueError):
-        _state_snapshot = None
+# --- redirect the cache to a scratch dir so the real one is never touched
+_cache_backup = serp_service.CACHE_DIR
+serp_service.CACHE_DIR = Path(tempfile.mkdtemp(prefix="vovage-test-cache-"))
+
+_orig_urlopen = serp_service.urllib.request.urlopen
 
 
 def check(name, cond, extra=""):
@@ -134,7 +130,7 @@ try:
     except PackageError:
         check("no stays raises", True)
 
-    # ---------------- route validation (no calls, no spend) ----------------
+    # ---------------- route validation (no network) ----------------
     base = "/api/package/search?origin=DEL&destination=GOI&q=Goa&outbound_date=2026-11-18&return_date=2026-11-20"
 
     r = client.get(base + "&budget=0")
@@ -147,88 +143,68 @@ try:
     check("rejects missing q", r.status_code == 400)
     r = client.get(base + "&budget=abc")
     check("rejects non-numeric budget", r.status_code == 400)
-    check("validation spent nothing", serp_service.budget()["used"] == _used0)
+    r = client.get(base + "&budget=1000&feed=replay")
+    check("feed param is inert", r.status_code in (200, 502), str(r.status_code))
 
-    # ---------------- replay end-to-end (zero spend) ----------------
-    r = client.get(base + "&budget=60000&adults=2&cabin=economy&feed=replay")
-    check("replay package 200", r.status_code == 200,
-          str(r.status_code) + " " + str(r.get_json())[:150])
-    if r.status_code != 200:
-        raise RuntimeError(r.get_json())
-    body = r.get_json()
-    check("replay tiers present", len(body["packages"]) >= 2, str(len(body["packages"])))
-    check("replay boards honest", body["boards"]["flight"]["mock"] is True
-          and body["boards"]["hotel"]["mock"] is True, str(body["boards"]))
-    check("replay spends nothing", body["budget"]["used"] == _used0)
-    check("nights match dates", body["nights"] == 2, str(body["nights"]))
-    check("currency honest", body["currency"] == "INR", str(body["currency"]))
+    # ---------------- live route, uncached: two stubbed network calls ----------------
+    shaped_flight = dict(FLIGHT)
+    shaped_flight.update(cached=False, fetched_on="2026-11-10 09:00")
+    shaped_hotel = dict(HOTEL)
+    shaped_hotel.update(cached=False, fetched_on="2026-11-10 09:00")
 
-    # exact same replay again — still zero spend
-    r = client.get(base + "&budget=60000&feed=replay")
-    check("repeat replay spends nothing", r.status_code == 200
-          and serp_service.budget()["used"] == _used0)
+    class FakeResp:
+        def __init__(self, payload): self.payload = payload
+        def read(self): return json.dumps(self.payload).encode()
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
 
-    # ---------------- live = auto cache-first ----------------
-    # (a) both legs seeded in cache: live feed serves from cache, zero spend
-    fp = {
-        "engine": "google_flights", "hl": "en", "gl": "in", "currency": "INR",
-        "type": 1, "departure_id": "DEL", "arrival_id": "GOI",
-        "outbound_date": "2026-11-18", "return_date": "2026-11-20",
-        "travel_class": 1, "adults": 2, "children": 0,
-    }
-    hp = {
-        "engine": "google_hotels", "hl": "en", "gl": "in", "currency": "INR",
-        "q": "Goa", "check_in_date": "2026-11-18", "check_out_date": "2026-11-20",
-        "adults": 2, "children": 0, "sort_by": "3",
-    }
-    seeded_f = serp_service.shape_flight(
-        json.loads(serp_service.FIXTURES["flight"].read_text(encoding="utf-8")))
-    seeded_f.update(mock=False, currency="INR",
-                    fetched_on=serp_service._now(), budget=serp_service.budget())
-    serp_service._cache_write(serp_service._params_key("flight", fp), seeded_f)
-    seeded_h = serp_service.shape_hotel(
-        json.loads(serp_service.FIXTURES["hotel"].read_text(encoding="utf-8")))
-    seeded_h.update(mock=False, currency="INR",
-                    fetched_on=serp_service._now(), budget=serp_service.budget())
-    serp_service._cache_write(serp_service._params_key("hotel", hp), seeded_h)
+    # serve a shaped payload straight back (cache-write persists it verbatim)
+    serp_service._cache_write(
+        serp_service._params_key("flight", {
+            "engine": "google_flights", "hl": "en", "gl": "in", "currency": "INR",
+            "type": 1, "departure_id": "DEL", "arrival_id": "GOI",
+            "outbound_date": "2026-11-18", "return_date": "2026-11-20",
+            "travel_class": 1, "adults": 2, "children": 0,
+        }), shaped_flight)
+    serp_service._cache_write(
+        serp_service._params_key("hotel", {
+            "engine": "google_hotels", "hl": "en", "gl": "in", "currency": "INR",
+            "q": "Goa", "check_in_date": "2026-11-18", "check_out_date": "2026-11-20",
+            "adults": 2, "children": 0, "sort_by": "3",
+        }), shaped_hotel)
 
-    r = client.get(base + "&budget=60000&feed=live")
-    check("live, both cached -> 200", r.status_code == 200,
-          str(r.status_code) + " " + str(r.get_json())[:150])
+    calls = {"n": 0}
+    def counting_urlopen(url, timeout=0):
+        calls["n"] += 1
+        return FakeResp({})
+    serp_service.urllib.request.urlopen = counting_urlopen
+
+    r = client.get(base + "&budget=60000&adults=2&cabin=economy")
+    check("package route 200", r.status_code == 200,
+          str(r.status_code) + " " + str(r.get_json())[:160])
     if r.status_code == 200:
-        got = r.get_json()
-        check("both boards flagged cached",
-              got["boards"]["flight"]["cached"] is True
-              and got["boards"]["hotel"]["cached"] is True, str(got["boards"]))
-        check("cached serve spent nothing", serp_service.budget()["used"] == _used0)
+        body = r.get_json()
+        check("tiers present", len(body["packages"]) >= 2, str(len(body["packages"])))
+        check("boards flagged cached, no mock key",
+              body["boards"]["flight"]["cached"] is True
+              and body["boards"]["hotel"]["cached"] is True
+              and "mock" not in body["boards"]["flight"], str(body["boards"]))
+        check("cache-first made zero network calls", calls["n"] == 0, str(calls["n"]))
+        check("budget key is the trip ceiling (not a ledger)",
+              body["budget"] == 60000, str(body.get("budget")))
+        check("nights match dates", body["nights"] == 2, str(body["nights"]))
+        check("trip budget echoed", body["trip_budget"] == 60000)
+        check("currency honest", body["currency"] == "INR", str(body["currency"]))
 
-    # (b) ledger at 5/5, flight cached, hotel not: hotel must replay-fallback,
-    #     NOT reach the network (route's own 429 guard passes only via the cache)
-    STATE.write_text(json.dumps({"calls": [{"ts": 0, "kind": "test", "key": "f"}] * 5}),
-                     encoding="utf-8")
-    hotel_cache = serp_service.CACHE_DIR / (
-        serp_service._params_key("hotel", hp) + ".json")
-    hotel_cache.unlink(missing_ok=True)  # break hotel cache
-    r = client.get(base + "&budget=60000&feed=live")
-    check("live, spent budget + cached flight -> 200", r.status_code == 200,
-          str(r.status_code) + " " + str(r.get_json())[:150])
-    if r.status_code == 200:
-        got = r.get_json()
-        check("hotel replay-fallback flagged", got["boards"]["hotel"]["mock"] is True
-              and got["boards"]["flight"]["cached"] is True, str(got["boards"]))
-        check("fallback spent nothing extra", serp_service.budget()["used"] == 5)
-    # restore real snapshot; the exhaustion ledger is replaced below in `finally`
-    if _state_snapshot is None:
-        STATE.unlink(missing_ok=True)
-    else:
-        STATE.write_text(_state_snapshot, encoding="utf-8")
+    # repeat request — still zero network
+    r = client.get(base + "&budget=60000")
+    check("repeat served from cache", r.status_code == 200 and calls["n"] == 0,
+          f"{r.status_code} net={calls['n']}")
 finally:
-    if _state_snapshot is None:
-        STATE.unlink(missing_ok=True)
-    else:
-        STATE.write_text(_state_snapshot, encoding="utf-8")
-    shutil.rmtree(CACHE, ignore_errors=True)  # drop test seeds
-    print("state restored:", True, "| cache cleaned:", not CACHE.exists())
+    serp_service.urllib.request.urlopen = _orig_urlopen
+    shutil.rmtree(serp_service.CACHE_DIR, ignore_errors=True)
+    serp_service.CACHE_DIR = _cache_backup
+    print("urlopen restored; cache scratch cleaned; real cache untouched")
 
 print()
 print("RESULT:", "ALL PASS" if not fails else f"FAILURES: {fails}")

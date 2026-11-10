@@ -32,9 +32,17 @@ export function Chrome() {
   return (
     <header className={`chrome${scrolled ? " scrolled" : ""}`}>
       <a href="#" className="wordmark">
-        vovage<i>.</i>
+        VOVAGE<i>.</i>
       </a>
       <nav className="chrome-right">
+        <span className="chrome-note mini">Estimates, not quotes</span>
+        <button
+          className="signin-btn"
+          type="button"
+          aria-label="Sign in to Vovage"
+        >
+          Sign in
+        </button>
         <button
           className="theme-toggle"
           onClick={flip}
