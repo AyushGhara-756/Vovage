@@ -39,7 +39,6 @@ function Field({
   aside,
   children,
 }: {
-  n?: string;
   cap: string;
   className: string;
   aside?: string;
@@ -126,27 +125,32 @@ function Stepper({
   onChange,
   min,
   max,
+  name,
 }: {
   value: number;
   onChange: (v: number) => void;
   min: number;
   max: number;
+  name?: string;
 }) {
   const clamp = (v: number) => Math.min(max, Math.max(min, v));
+  const who = name ? ` ${name.toLowerCase()}` : "";
   return (
     <div className="stepper">
       <button
         type="button"
-        aria-label="decrease"
+        aria-label={`Decrease${who}`}
         disabled={value <= min}
         onClick={() => onChange(clamp(value - 1))}
       >
         –
       </button>
-      <span className="val">{value}</span>
+      <span className="val" aria-live="polite">
+        {value}
+      </span>
       <button
         type="button"
-        aria-label="increase"
+        aria-label={`Increase${who}`}
         disabled={value >= max}
         onClick={() => onChange(clamp(value + 1))}
       >
@@ -170,6 +174,14 @@ function Money({
   const from = useRef(0);
 
   useEffect(() => {
+    const reduce =
+      typeof window !== "undefined" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduce) {
+      from.current = value;
+      setShown(value);
+      return;
+    }
     const start = from.current;
     const t0 = performance.now();
     const D = 950;
@@ -208,7 +220,9 @@ function AirportField({
   const [text, setText] = useState(value?.code ?? "");
   const [hits, setHits] = useState<AirportHit[]>([]);
   const [open, setOpen] = useState(false);
+  const [cursor, setCursor] = useState(-1);
   const [err, setErr] = useState<string | null>(null);
+  const listId = `ac-${cap.toLowerCase().replace(/\s+/g, "-")}`;
 
   useEffect(() => {
     if (value) setText(value.code);
@@ -228,14 +242,15 @@ function AirportField({
         .then((r) => {
           if (!alive) return;
           setHits(r.results);
+          setCursor(-1);
           setOpen(true);
-          setErr(r.results.length ? null : `no airports match “${q}”`);
+          setErr(r.results.length ? null : `No airports match “${q}”`);
         })
         .catch((e) => {
           if (!alive) return;
           setHits([]);
           setOpen(true);
-          setErr((e as Error).message || "airport lookup failed");
+          setErr((e as Error).message || "Airport lookup failed");
         });
     }, 140);
     return () => {
@@ -247,6 +262,7 @@ function AirportField({
   const pick = (h: AirportHit) => {
     setText(h.code);
     setHits([]);
+    setCursor(-1);
     setOpen(false);
     onPick(h);
   };
@@ -261,29 +277,82 @@ function AirportField({
     }
   };
 
+  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (open && hits.length > 0) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        setCursor((c) => {
+          const next =
+            e.key === "ArrowDown"
+              ? c + 1
+              : c <= 0
+                ? hits.length - 1
+                : c - 1;
+          return (next + hits.length) % hits.length;
+        });
+        return;
+      }
+      if (e.key === "Enter") {
+        e.preventDefault();
+        if (cursor >= 0 && cursor < hits.length) {
+          pick(hits[cursor]);
+          return;
+        }
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setOpen(false);
+        setCursor(-1);
+        return;
+      }
+    }
+    if (e.key === "Enter") {
+      // Enter on a bare input should not submit; fold the list instead
+      e.preventDefault();
+      close();
+    }
+  };
+
   return (
     <Field cap={cap} className="select span5 ac" aside={value?.city}>
       <input
         className="control display"
+        id={`in-${listId}`}
         value={text}
         placeholder="city, airport, code"
         autoCapitalize="characters"
+        autoCorrect="off"
         spellCheck={false}
+        role="combobox"
+        aria-expanded={open}
+        aria-controls={open ? listId : undefined}
+        aria-activedescendant={
+          open && cursor >= 0 ? `${listId}-${cursor}` : undefined
+        }
+        aria-autocomplete="list"
+        autoComplete="off"
         onChange={(e) => {
           setText(e.target.value);
           onPick(null);
         }}
         onFocus={() => hits.length > 0 && setOpen(true)}
         onBlur={close}
+        onKeyDown={onKeyDown}
       />
       {open && hits.length > 0 && (
-        <div className="ac-list display" role="listbox">
-          {hits.map((h) => (
+        <div
+          className="ac-list display"
+          id={listId}
+          role="listbox"
+          aria-labelledby={`in-${listId}`}
+        >
+          {hits.map((h, i) => (
             <div
               key={h.code}
-              className="ac-item"
+              id={`${listId}-${i}`}
+              className={`ac-item${i === cursor ? " active" : ""}`}
               role="option"
-              aria-selected={false}
+              aria-selected={i === cursor}
               tabIndex={-1}
               onMouseDown={(e) => {
                 e.preventDefault(); // keep input focus until picked
@@ -432,7 +501,7 @@ function Itin({ o, cur, loc }: { o: FlightOption; cur: string; loc: string }) {
         </div>
         {legs.length > 1 && (
           <div className="mini dim">
-            in parts: {legs.map((l) => hm(l.duration)).join(" · ")}
+            leg times: {legs.map((l) => hm(l.duration)).join(" · ")}
           </div>
         )}
       </div>
@@ -662,11 +731,13 @@ export default function Home() {
   /* ----- live flight search ----- */
   const [flight, setFlight] = useState<FlightSearch | null>(null);
   const [flightError, setFlightError] = useState<string | null>(null);
+  const [flightNote, setFlightNote] = useState<string | null>(null);
   const [fPending, setFPending] = useState(false);
   const [fh, setFh] = useState(flightHuntDefaults);
   const flightRef = useRef<HTMLDivElement>(null);
   const [stay, setStay] = useState<StaySearch | null>(null);
   const [stayError, setStayError] = useState<string | null>(null);
+  const [stayNote, setStayNote] = useState<string | null>(null);
   const [sPending, setSPending] = useState(false);
   const [sh, setSh] = useState(stayHuntDefaults);
   const stayRef = useRef<HTMLDivElement>(null);
@@ -674,6 +745,7 @@ export default function Home() {
   /* ----- package builder (flight + stay, priced as tiers) ----- */
   const [pkg, setPkg] = useState<PackageSearch | null>(null);
   const [pkgError, setPkgError] = useState<string | null>(null);
+  const [pkgNote, setPkgNote] = useState<string | null>(null);
   const [pPending, setPPending] = useState(false);
   const [pk, setPk] = useState(packageHuntDefaults);
   const pkgRef = useRef<HTMLDivElement>(null);
@@ -735,100 +807,144 @@ export default function Home() {
     setStayPred((s) => ({ ...s, ...kv }));
 
   /* ----- live submit: flights ----- */
-  const runFlight = async () => {
+  const runFlight = () => {
+    setFlightNote(null);
+    setFlightError(null);
     if (!fh.origin || !fh.destination) {
-      setFlightError("please choose both a departure and a destination airport");
+      setFlightNote("Please choose both a departure and a destination airport.");
+      return;
+    }
+    if (fh.origin.code === fh.destination.code) {
+      setFlightNote("Origin and destination cannot be the same airport.");
+      return;
+    }
+    if (!fh.outbound) {
+      setFlightNote("Please choose a departure date.");
+      return;
+    }
+    if (!fh.ret) {
+      setFlightNote("Please choose a return date.");
+      return;
+    }
+    if (fh.ret < fh.outbound) {
+      setFlightNote("The return date cannot be earlier than the departure date.");
       return;
     }
     setFPending(true);
-    setFlightError(null);
-    try {
-      const res = await searchLiveFlights({
-        origin: fh.origin.code,
-        destination: fh.destination.code,
-        outbound_date: fh.outbound,
-        return_date: fh.ret,
-        travel_class: fh.cabin,
-        adults: fh.adults,
-        children: fh.kids,
-      });
-      setFlight(res);
-      requestAnimationFrame(() =>
-        flightRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }),
-      );
-    } catch (e) {
-      setFlightError((e as Error).message);
-    } finally {
-      setFPending(false);
-    }
+    searchLiveFlights({
+      origin: fh.origin.code,
+      destination: fh.destination.code,
+      outbound_date: fh.outbound,
+      return_date: fh.ret,
+      travel_class: fh.cabin,
+      adults: fh.adults,
+      children: fh.kids,
+    })
+      .then((res) => {
+        setFlight(res);
+        requestAnimationFrame(() =>
+          flightRef.current?.scrollIntoView({
+            behavior: "smooth",
+            block: "start",
+          }),
+        );
+      })
+      .catch((e) => setFlightError((e as Error).message))
+      .finally(() => setFPending(false));
   };
 
   /* ----- live submit: stays ----- */
-  const runStays = async () => {
+  const runStays = () => {
+    setStayNote(null);
+    setStayError(null);
     if (!sh.q.trim()) {
-      setStayError("tell us where you'd like to stay");
+      setStayNote("Tell us where you’d like to stay.");
+      return;
+    }
+    if (!sh.checkIn) {
+      setStayNote("Please choose a check-in date.");
+      return;
+    }
+    if (!sh.checkOut) {
+      setStayNote("Please choose a check-out date.");
+      return;
+    }
+    if (sh.checkOut < sh.checkIn) {
+      setStayNote("The check-out date cannot be earlier than the check-in date.");
       return;
     }
     setSPending(true);
-    setStayError(null);
-    try {
-      const res = await searchLiveStays({
-        q: sh.q.trim(),
-        check_in_date: sh.checkIn,
-        check_out_date: sh.checkOut,
-        adults: sh.adults,
-        children: sh.kids,
-        sort_by: sh.sort,
-      });
-      setStay(res);
-      requestAnimationFrame(() =>
-        stayRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }),
-      );
-    } catch (e) {
-      setStayError((e as Error).message);
-    } finally {
-      setSPending(false);
-    }
+    searchLiveStays({
+      q: sh.q.trim(),
+      check_in_date: sh.checkIn,
+      check_out_date: sh.checkOut,
+      adults: sh.adults,
+      children: sh.kids,
+      sort_by: sh.sort,
+    })
+      .then((res) => {
+        setStay(res);
+        requestAnimationFrame(() =>
+          stayRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }),
+        );
+      })
+      .catch((e) => setStayError((e as Error).message))
+      .finally(() => setSPending(false));
   };
 
   /* ----- live submit: packages ----- */
-  const runPackages = async () => {
+  const runPackages = () => {
+    setPkgNote(null);
+    setPkgError(null);
     if (!pk.origin || !pk.destination) {
-      setPkgError("please choose both a departure and a destination airport");
+      setPkgNote("Please choose both a departure and a destination airport.");
+      return;
+    }
+    if (pk.origin.code === pk.destination.code) {
+      setPkgNote("Origin and destination cannot be the same airport.");
       return;
     }
     if (!pk.q.trim()) {
-      setPkgError("tell us where you'd like to stay");
+      setPkgNote("Tell us where you’d like to stay.");
+      return;
+    }
+    if (!pk.outbound) {
+      setPkgNote("Please choose a departure date.");
+      return;
+    }
+    if (!pk.ret) {
+      setPkgNote("Please choose a return date.");
+      return;
+    }
+    if (pk.ret < pk.outbound) {
+      setPkgNote("The return date cannot be earlier than the departure date.");
       return;
     }
     const tripBudget = Number(pk.budget);
     if (!Number.isFinite(tripBudget) || tripBudget <= 0) {
-      setPkgError("please enter a total budget for the trip");
+      setPkgNote("Please enter a total budget for the trip.");
       return;
     }
     setPPending(true);
-    setPkgError(null);
-    try {
-      const res = await searchPackages({
-        origin: pk.origin.code,
-        destination: pk.destination.code,
-        q: pk.q.trim(),
-        outbound_date: pk.outbound,
-        return_date: pk.ret,
-        budget: tripBudget,
-        travel_class: pk.cabin,
-        adults: pk.adults,
-        children: pk.kids,
-      });
-      setPkg(res);
-      requestAnimationFrame(() =>
-        pkgRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }),
-      );
-    } catch (e) {
-      setPkgError((e as Error).message);
-    } finally {
-      setPPending(false);
-    }
+    searchPackages({
+      origin: pk.origin.code,
+      destination: pk.destination.code,
+      q: pk.q.trim(),
+      outbound_date: pk.outbound,
+      return_date: pk.ret,
+      budget: tripBudget,
+      travel_class: pk.cabin,
+      adults: pk.adults,
+      children: pk.kids,
+    })
+      .then((res) => {
+        setPkg(res);
+        requestAnimationFrame(() =>
+          pkgRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }),
+        );
+      })
+      .catch((e) => setPkgError((e as Error).message))
+      .finally(() => setPPending(false));
   };
 
   /* ----- legacy submit ----- */
@@ -1033,34 +1149,45 @@ export default function Home() {
                 </div>
               </Field>
 
-              <Field cap="Adults" className="stepper span2">
+              <Field cap="Adults" className="count span2">
                 <Stepper
                   value={fh.adults}
                   onChange={(v) => patchFh({ adults: v })}
                   min={1}
                   max={8}
+                  name="adults"
                 />
               </Field>
-              <Field cap="Children" className="stepper span2">
+              <Field cap="Children" className="count span2">
                 <Stepper
                   value={fh.kids}
                   onChange={(v) => patchFh({ kids: v })}
                   min={0}
                   max={8}
+                  name="children"
                 />
               </Field>
 
-              <div className="launch" style={{ gridColumn: "span 8" }}>
+              <div className="launch span8">
                 <div className="launch-inner" style={{ padding: "30px 0 20px" }}>
                   <p className="hint">
                     Fares straight from the market — every search is kept on
                     file and replayed instantly at no cost.
                   </p>
-                  <button className="launch-btn" onClick={runFlight} disabled={fPending}>
+                  <button
+                    className="launch-btn"
+                    onClick={runFlight}
+                    disabled={fPending}
+                  >
                     {fPending ? "Searching…" : "Search flights"}
                   </button>
                 </div>
               </div>
+              {flightNote && (
+                <p className="form-note" role="alert">
+                  {flightNote}
+                </p>
+              )}
             </div>
           )}
 
@@ -1093,20 +1220,22 @@ export default function Home() {
                 />
               </Field>
 
-              <Field cap="Adults" className="stepper span2">
+              <Field cap="Adults" className="count span2">
                 <Stepper
                   value={sh.adults}
                   onChange={(v) => patchSh({ adults: v })}
                   min={1}
                   max={8}
+                  name="adults"
                 />
               </Field>
-              <Field cap="Children" className="stepper span2">
+              <Field cap="Children" className="count span2">
                 <Stepper
                   value={sh.kids}
                   onChange={(v) => patchSh({ kids: v })}
                   min={0}
                   max={8}
+                  name="children"
                 />
               </Field>
               <Field cap="Sort" className="select span2">
@@ -1121,17 +1250,26 @@ export default function Home() {
                 </select>
               </Field>
 
-              <div className="launch" style={{ gridColumn: "span 6" }}>
+              <div className="launch span6">
                 <div className="launch-inner" style={{ padding: "30px 0 20px" }}>
                   <p className="hint">
                     Live availability across our stay partners — kept on file
                     for instant replays.
                   </p>
-                  <button className="launch-btn" onClick={runStays} disabled={sPending}>
+                  <button
+                    className="launch-btn"
+                    onClick={runStays}
+                    disabled={sPending}
+                  >
                     {sPending ? "Searching…" : "Search stays"}
                   </button>
                 </div>
               </div>
+              {stayNote && (
+                <p className="form-note" role="alert">
+                  {stayNote}
+                </p>
+              )}
             </div>
           )}
 
@@ -1197,20 +1335,22 @@ export default function Home() {
                   onChange={(e) => patchPk({ ret: e.target.value })}
                 />
               </Field>
-              <Field cap="Adults" className="stepper span2">
+              <Field cap="Adults" className="count span2">
                 <Stepper
                   value={pk.adults}
                   onChange={(v) => patchPk({ adults: v })}
                   min={1}
                   max={8}
+                  name="adults"
                 />
               </Field>
-              <Field cap="Children" className="stepper span2">
+              <Field cap="Children" className="count span2">
                 <Stepper
                   value={pk.kids}
                   onChange={(v) => patchPk({ kids: v })}
                   min={0}
                   max={8}
+                  name="children"
                 />
               </Field>
 
@@ -1236,17 +1376,26 @@ export default function Home() {
                 </div>
               </Field>
 
-              <div className="launch" style={{ gridColumn: "span 8" }}>
+              <div className="launch span8">
                 <div className="launch-inner" style={{ padding: "26px 0 20px" }}>
                   <p className="hint">
                     One live check for flights and one for stays — both kept
                     on file for instant replays.
                   </p>
-                  <button className="launch-btn" onClick={runPackages} disabled={pPending}>
+                  <button
+                    className="launch-btn"
+                    onClick={runPackages}
+                    disabled={pPending}
+                  >
                     {pPending ? "Curating…" : "Find packages"}
                   </button>
                 </div>
               </div>
+              {pkgNote && (
+                <p className="form-note" role="alert">
+                  {pkgNote}
+                </p>
+              )}
             </div>
           )}
 
@@ -1387,7 +1536,7 @@ export default function Home() {
                     </div>
                   </Field>
 
-                  <div className="launch" style={{ gridColumn: "span 4" }}>
+                  <div className="launch span4">
                     <div className="launch-inner" style={{ padding: "26px 0 20px" }}>
                       <p className="hint">
                         An indicative fare, modelled on route, timing, season
@@ -1427,7 +1576,7 @@ export default function Home() {
                     />
                   </Field>
 
-                  <Field cap="Arrival week" className="stepper span4">
+                  <Field cap="Arrival week" className="count span4">
                     <Stepper
                       value={stayPred.arrival_date_week_number}
                       onChange={(v) => patchStay({ arrival_date_week_number: v })}
@@ -1435,7 +1584,7 @@ export default function Home() {
                       max={53}
                     />
                   </Field>
-                  <Field cap="Day of month" className="stepper span4">
+                  <Field cap="Day of month" className="count span4">
                     <Stepper
                       value={stayPred.arrival_date_day_of_month}
                       onChange={(v) => patchStay({ arrival_date_day_of_month: v })}
@@ -1443,7 +1592,7 @@ export default function Home() {
                       max={31}
                     />
                   </Field>
-                  <Field cap="Adults" className="stepper span4">
+                  <Field cap="Adults" className="count span4">
                     <Stepper
                       value={stayPred.adults}
                       onChange={(v) => patchStay({ adults: v })}
@@ -1452,7 +1601,7 @@ export default function Home() {
                     />
                   </Field>
 
-                  <Field cap="Week-nights" className="stepper span4">
+                  <Field cap="Week-nights" className="count span4">
                     <Stepper
                       value={stayPred.stays_in_week_nights}
                       onChange={(v) => patchStay({ stays_in_week_nights: v })}
@@ -1460,7 +1609,7 @@ export default function Home() {
                       max={10}
                     />
                   </Field>
-                  <Field cap="Weekend-nights" className="stepper span4">
+                  <Field cap="Weekend-nights" className="count span4">
                     <Stepper
                       value={stayPred.stays_in_weekend_nights}
                       onChange={(v) => patchStay({ stays_in_weekend_nights: v })}
@@ -1469,7 +1618,7 @@ export default function Home() {
                     />
                   </Field>
 
-                  <div className="launch" style={{ gridColumn: "span 4" }}>
+                  <div className="launch span4">
                     <div className="launch-inner" style={{ padding: "30px 0 20px" }}>
                       <p className="hint">
                         An indicative nightly rate, modelled on the season,
