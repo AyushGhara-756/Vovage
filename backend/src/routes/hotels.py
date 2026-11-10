@@ -2,7 +2,7 @@ from ...model.Hotels import load_artifacts, predict_adr, MONTHS
 from flask import request, jsonify, Blueprint
 
 from ..services import serp_service
-from ..services.serp_service import SerpError, BudgetExhausted, shape_hotel
+from ..services.serp_service import SerpError, shape_hotel
 
 import re
 
@@ -84,11 +84,8 @@ def search():
     if sort_by:
         params["sort_by"] = sort_by
 
-    mock = str(args.get("mock", "")).strip().lower() in ("1", "true", "yes", "on")
     try:
-        payload = serp_service.run_search("hotel", params, shape_hotel, mock=mock)
-    except BudgetExhausted as e:
-        return jsonify({"error": str(e), "budget": serp_service.budget()}), 429
+        payload = serp_service.run_search("hotel", params, shape_hotel)
     except SerpError as e:
         return jsonify({"error": str(e)}), 502
     return jsonify(payload)

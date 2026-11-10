@@ -4,7 +4,7 @@ from flask import Blueprint, request, jsonify
 
 from ..services.flight_service import predict as predict_price, flight_service
 from ..services import serp_service
-from ..services.serp_service import SerpError, BudgetExhausted, shape_flight
+from ..services.serp_service import SerpError, shape_flight
 
 flight_bp = Blueprint("flight", __name__, url_prefix="/api/flight")
 
@@ -12,10 +12,6 @@ _DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _CABINS = ["economy", "premium_economy", "business", "first"]
 # SerpApi wants an integer travel_class, not the human string
 _CLASS_ID = {"economy": 1, "premium_economy": 2, "business": 3, "first": 4}
-
-
-def _truthy(value):
-    return str(value).strip().lower() in ("1", "true", "yes", "on")
 
 
 @flight_bp.route("/options", methods=["GET"])
@@ -56,7 +52,7 @@ def airports():
 
 @flight_bp.route("/search", methods=["GET"])
 def search():
-    """Live Google Flights round-trip via SerpApi. 1 call (or cache/mock)."""
+    """Live Google Flights round-trip via SerpApi (cache-first)."""
     args = request.args
     origin = (args.get("origin") or "").strip().upper()
     destination = (args.get("destination") or "").strip().upper()
@@ -100,10 +96,7 @@ def search():
     }
 
     try:
-        payload = serp_service.run_search("flight", params, shape_flight,
-                                          mock=_truthy(args.get("mock", "")))
-    except BudgetExhausted as e:
-        return jsonify({"error": str(e), "budget": serp_service.budget()}), 429
+        payload = serp_service.run_search("flight", params, shape_flight)
     except SerpError as e:
         return jsonify({"error": str(e)}), 502
     return jsonify(payload)

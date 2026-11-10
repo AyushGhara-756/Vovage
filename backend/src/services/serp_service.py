@@ -2,16 +2,13 @@
 
 Ground rules baked into this module:
 
-- The app may spend **MAX_CALLS** real SerpApi calls in its entire
-  lifetime. The ledger lives in ``backend/data/serp_state.json`` and
-  survives server restarts; once spent, no request path can spend more.
+- Every search is a **live** SerpApi call — there is no mock/replay
+  path anywhere in this module.
 - Every successful real search is cached (params-keyed JSON under
   ``backend/data/serp_cache/``) — identical repeat searches are served
   from disk and cost nothing.
-- ``mock=True`` replays the captured fixtures in ``backend/data/``
-  (zero cost, never touches the ledger).
 - Airport autocomplete is served from the local IATA dataset — it
-  never spends a call.
+  never touches the network.
 """
 
 import hashlib
@@ -28,15 +25,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 DATA_DIR = ROOT / "backend" / "data"
 
-STATE_FILE = DATA_DIR / "serp_state.json"
 CACHE_DIR = DATA_DIR / "serp_cache"
 IATA_FILE = DATA_DIR / "iata-airport_codes.json"
-FIXTURES = {
-    "flight": DATA_DIR / "mock_flight.json",
-    "hotel": DATA_DIR / "mock_hotel.json",
-}
 
-MAX_CALLS = 5
 API_URL = "https://serpapi.com/search.json"
 TIMEOUT = 60
 
@@ -45,39 +36,6 @@ _IATA_WARNED = False  # one-time warning flag for a missing/corrupt dataset
 
 class SerpError(Exception):
     """Raised for anything wrong with a SerpApi round-trip."""
-
-
-class BudgetExhausted(SerpError):
-    """The lifetime call budget is spent; only cache/mock remain."""
-
-
-# ------------------------------------------------------------------ state
-
-def _load_state():
-    try:
-        return json.loads(STATE_FILE.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        return {"calls": []}
-    except (json.JSONDecodeError, OSError):
-        return {"calls": []}
-
-
-def _save_state(state):
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    tmp = STATE_FILE.with_suffix(".tmp")
-    tmp.write_text(json.dumps(state, indent=1), encoding="utf-8")
-    os.replace(tmp, STATE_FILE)
-
-
-def budget():
-    """Calls spent vs the lifetime allowance."""
-    calls = _load_state().get("calls", [])
-    return {
-        "max": MAX_CALLS,
-        "used": len(calls),
-        "remaining": max(0, MAX_CALLS - len(calls)),
-        "calls": calls[-5:],
-    }
 
 
 def _api_key():
@@ -125,13 +83,6 @@ def _now():
 
 
 def _serp_request(kind, params):
-    info = budget()
-    if info["remaining"] <= 0:
-        raise BudgetExhausted(
-            f"lifetime SerpApi budget spent ({MAX_CALLS}/{MAX_CALLS}) — "
-            "only cached results remain"
-        )
-
     query = dict(params)
     query["api_key"] = _api_key()
     url = f"{API_URL}?{urllib.parse.urlencode(query)}"
@@ -154,46 +105,21 @@ def _serp_request(kind, params):
     if isinstance(raw, dict) and raw.get("error"):
         raise SerpError(str(raw["error"]))
 
-    # a successful, billable search — spend exactly one call
-    state = _load_state()
-    state.setdefault("calls", []).append(
-        {"ts": int(time.time()), "kind": kind, "key": _params_key(kind, params)}
-    )
-    _save_state(state)
     return raw
 
 
-def run_search(kind, params, shape, mock=False):
-    """Execute (or replay/cache) a SerpApi search and return the shaped payload."""
-    if mock:
-        fixture = FIXTURES[kind]
-        try:
-            raw = json.loads(fixture.read_text(encoding="utf-8"))
-        except (FileNotFoundError, json.JSONDecodeError, OSError) as exc:
-            raise SerpError(f"replay fixture {fixture.name} is missing") from exc
-        payload = shape(raw)
-        payload["mock"] = True
-        payload["cached"] = False
-        payload["fetched_on"] = _now()
-        payload["currency"] = (payload.get("currency")
-                               or raw.get("search_parameters", {}).get("currency")
-                               or "USD")
-        payload["budget"] = budget()  # replay spends nothing
-        return payload
-
+def run_search(kind, params, shape):
+    """Execute (or serve from cache) a live SerpApi search, shaped."""
     key = _params_key(kind, params)
     cached = _cache_read(key)
     if cached is not None:
-        cached["cached"] = True
-        cached["budget"] = budget()  # serve from disk, no spend
+        cached["cached"] = True  # serve from disk, zero network cost
         return cached
 
     raw = _serp_request(kind, params)
     payload = shape(raw)
-    payload["mock"] = False
     payload["cached"] = False
     payload["fetched_on"] = _now()
-    payload["budget"] = budget()
     _cache_write(key, payload)
     return payload
 

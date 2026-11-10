@@ -8,7 +8,6 @@ import {
 } from "react";
 import { Chrome, Ticker } from "./chrome";
 import {
-  fetchBudget,
   fetchFlightOptions,
   fetchStayOptions,
   predictFlight,
@@ -18,13 +17,11 @@ import {
   searchLiveStays,
   searchPackages,
   type AirportHit,
-  type Budget,
   type FlightOption,
   type FlightOptions,
   type FlightQuery,
   type FlightSearch,
   type HotelOptions,
-  type LiveFeed,
   type PackageOffer,
   type PackageSearch,
   type PackageTier,
@@ -37,13 +34,12 @@ import {
 const CITIES = ["Delhi", "Mumbai", "Bangalore", "Kolkata", "Chennai", "Hyderabad"];
 
 function Field({
-  n,
   cap,
   className,
   aside,
   children,
 }: {
-  n: string;
+  n?: string;
   cap: string;
   className: string;
   aside?: string;
@@ -53,7 +49,7 @@ function Field({
     <label className={`field ${className}`}>
       <span className="cap mini">
         {cap}
-        <i>{aside ?? n}</i>
+        {aside ? <i>{aside}</i> : null}
       </span>
       {children}
     </label>
@@ -90,6 +86,10 @@ function prettify(v: string): string {
     Air_India: "Air India",
     two_or_more: "2 or more",
     zero: "Non-stop",
+    live: "Live",
+    replay: "Demo",
+    flights: "Flights",
+    stays: "Stays",
   };
   return map[v] ?? v.replace(/_/g, " ");
 }
@@ -197,12 +197,10 @@ function Money({
 /* ---------------------------------------------------------------- type-to-search airport */
 
 function AirportField({
-  n,
   cap,
   value,
   onPick,
 }: {
-  n: string;
   cap: string;
   value: AirportHit | null;
   onPick: (a: AirportHit | null) => void;
@@ -264,7 +262,7 @@ function AirportField({
   };
 
   return (
-    <Field n={n} cap={cap} className="select span5 ac" aside={value?.city ?? n}>
+    <Field cap={cap} className="select span5 ac" aside={value?.city}>
       <input
         className="control display"
         value={text}
@@ -372,14 +370,14 @@ function Spark({ points }: { points: [number, number][] }) {
   );
 }
 
-/* board badges (LIVE / CACHE / REPLAY + spend-note) */
-function Tags({ search }: { search: { mock?: boolean; cached?: boolean; fetched_on: string } }) {
-  const kind = search.mock ? "sample replay" : search.cached ? "cache — no call spent" : "live board";
-  const cls = search.mock ? "tag" : search.cached ? "tag hot" : "tag live";
+/* board badges (results provenance, phrased for travellers) */
+function Tags({ search }: { search: { cached?: boolean; fetched_on: string } }) {
+  const kind = search.cached ? "Cached results" : "Live results";
+  const cls = search.cached ? "tag" : "tag live";
   return (
     <div className="board-tags">
       <span className={cls}>{kind}</span>
-      <span className="tag dim">fetched {search.fetched_on}</span>
+      <span className="tag dim">updated {search.fetched_on}</span>
     </div>
   );
 }
@@ -393,12 +391,12 @@ type Result =
   | { kind: "error"; message: string };
 
 const TICKER: string[][] = [
-  ["DEL", "BOM", "4,222", "VISTARA · ECON · 30 DAYS OUT"],
-  ["BLR", "CCU", "8,131", "AIR INDIA · BUSINESS"],
-  ["MAA", "HYD", "1,758", "INDIGO · NON-STOP"],
-  ["DEL", "BOM", "49,987", "VISTARA · BUSINESS · TOMORROW"],
-  ["CCU", "BLR", "6,060", "SPICEJET · DIRECT"],
-  ["HYD", "DEL", "12,482", "GO FIRST · 2 STOPS"],
+  ["Delhi", "Mumbai", "4,222", "Economy · 30 days out"],
+  ["Bangalore", "Kolkata", "8,131", "Business cabin"],
+  ["Chennai", "Hyderabad", "1,758", "Non-stop"],
+  ["Delhi", "Mumbai", "49,987", "Business · tomorrow"],
+  ["Kolkata", "Bangalore", "6,060", "Direct"],
+  ["Hyderabad", "Delhi", "12,482", "One stop"],
 ];
 
 /* ---------------------------------------------------------------- flight board row */
@@ -434,7 +432,7 @@ function Itin({ o, cur, loc }: { o: FlightOption; cur: string; loc: string }) {
         </div>
         {legs.length > 1 && (
           <div className="mini dim">
-            each leg: {legs.map((l) => hm(l.duration)).join(" + ")}
+            in parts: {legs.map((l) => hm(l.duration)).join(" · ")}
           </div>
         )}
       </div>
@@ -480,7 +478,7 @@ function StayCard({ s, cur }: { s: StayOption; cur: string }) {
           ) : null}
           <b>{s.name}</b>
         </div>
-        <div className="mini dim"><i>{s.type} · Reviews: {(s.reviews ?? 0).toLocaleString("en-US")}</i></div>
+        <div className="mini dim"><i>{s.type} · {(s.reviews ?? 0).toLocaleString("en-US")} reviews</i></div>
         <div className="stay-rate">
           <span className="p display">
             <i>{cur}</i>
@@ -489,7 +487,7 @@ function StayCard({ s, cur }: { s: StayOption; cur: string }) {
           <span className="sub mini">/ night</span>
         </div>
         {s.total_display && (
-          <div className="mini dim">full stay — {s.total_display}</div>
+          <div className="mini dim">est. total for the stay — {s.total_display}</div>
         )}
         <div className="chiprow">
           {s.amenities.slice(0, 4).map((a) => (
@@ -497,8 +495,8 @@ function StayCard({ s, cur }: { s: StayOption; cur: string }) {
           ))}
         </div>
         <div className="stay-foot mini">
-          <span>in {s.check_in_time ?? "—"} · out {s.check_out_time ?? "—"}</span>
-          {s.location_rating ? <span>loc {s.location_rating}</span> : null}
+          <span>check-in {s.check_in_time ?? "—"} · check-out {s.check_out_time ?? "—"}</span>
+          {s.location_rating ? <span>location {s.location_rating}/5</span> : null}
         </div>
       </div>
     </div>
@@ -511,9 +509,9 @@ function StayCard({ s, cur }: { s: StayOption; cur: string }) {
 /* ---------------------------------------------------------------- package tier card */
 
 const TIER_COPY: Record<PackageTier, { label: string; blurb: string }> = {
-  saver: { label: "Saver", blurb: "cheapest fare + cheapest stay" },
-  balanced: { label: "Balanced", blurb: "best-rated stay that still fits the budget" },
-  comfort: { label: "Comfort", blurb: "best-rated stay, even if it pushes the total" },
+  saver: { label: "The Essential", blurb: "Our most considered value — the best fare paired with a well-priced stay" },
+  balanced: { label: "The Curated", blurb: "The finest-rated stay that still sits comfortably within your budget" },
+  comfort: { label: "The Grand", blurb: "The top-rated stay of the collection, whatever the total comes to" },
 };
 
 function PackageCard({
@@ -606,7 +604,7 @@ function PackageCard({
             </div>
             {s.link ? (
               <a className="pkg-link mini" href={s.link} target="_blank" rel="noreferrer">
-                open listing ↗
+                View property ↗
               </a>
             ) : null}
           </div>
@@ -627,7 +625,6 @@ function flightHuntDefaults() {
     cabin: "economy",
     adults: 2,
     kids: 0,
-    feed: "replay" as LiveFeed,
   };
 }
 
@@ -639,7 +636,6 @@ function stayHuntDefaults() {
     adults: 2,
     kids: 0,
     sort: "3",
-    feed: "replay" as LiveFeed,
   };
 }
 
@@ -654,7 +650,6 @@ function packageHuntDefaults() {
     cabin: "economy",
     adults: 2,
     kids: 0,
-    feed: "replay" as LiveFeed,
   };
 }
 
@@ -663,7 +658,6 @@ function packageHuntDefaults() {
 export default function Home() {
   /* ----- global panel ----- */
   const [panel, setPanel] = useState<Panel>("flights");
-  const [budget, setBudget] = useState<Budget | null>(null);
 
   /* ----- live flight search ----- */
   const [flight, setFlight] = useState<FlightSearch | null>(null);
@@ -697,9 +691,6 @@ export default function Home() {
       .then(setFlightOptions)
       .catch(() => {});
     fetchStayOptions().then(setStayOptions).catch(() => {});
-    fetchBudget()
-      .then(setBudget)
-      .catch(() => {});
   }, []);
 
   const patchFh = (kv: Partial<typeof fh>) => setFh((s) => ({ ...s, ...kv }));
@@ -746,13 +737,7 @@ export default function Home() {
   /* ----- live submit: flights ----- */
   const runFlight = async () => {
     if (!fh.origin || !fh.destination) {
-      setFlightError("pick both airports from the dropdown first");
-      return;
-    }
-    if (fh.feed === "live" && budget && budget.remaining <= 0) {
-      setFlightError(
-        "lifetime serpapi budget is spent — switch the feed to REPLAY (cached results stay available)",
-      );
+      setFlightError("please choose both a departure and a destination airport");
       return;
     }
     setFPending(true);
@@ -766,10 +751,8 @@ export default function Home() {
         travel_class: fh.cabin,
         adults: fh.adults,
         children: fh.kids,
-        feed: fh.feed,
       });
       setFlight(res);
-      setBudget(res.budget);
       requestAnimationFrame(() =>
         flightRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }),
       );
@@ -783,13 +766,7 @@ export default function Home() {
   /* ----- live submit: stays ----- */
   const runStays = async () => {
     if (!sh.q.trim()) {
-      setStayError("type a destination for the hotels board");
-      return;
-    }
-    if (sh.feed === "live" && budget && budget.remaining <= 0) {
-      setStayError(
-        "lifetime serpapi budget is spent — switch the feed to REPLAY (cached results stay available)",
-      );
+      setStayError("tell us where you'd like to stay");
       return;
     }
     setSPending(true);
@@ -802,10 +779,8 @@ export default function Home() {
         adults: sh.adults,
         children: sh.kids,
         sort_by: sh.sort,
-        feed: sh.feed,
       });
       setStay(res);
-      setBudget(res.budget);
       requestAnimationFrame(() =>
         stayRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }),
       );
@@ -819,22 +794,16 @@ export default function Home() {
   /* ----- live submit: packages ----- */
   const runPackages = async () => {
     if (!pk.origin || !pk.destination) {
-      setPkgError("pick both airports from the dropdown first");
+      setPkgError("please choose both a departure and a destination airport");
       return;
     }
     if (!pk.q.trim()) {
-      setPkgError("type a destination for the stay board");
+      setPkgError("tell us where you'd like to stay");
       return;
     }
     const tripBudget = Number(pk.budget);
     if (!Number.isFinite(tripBudget) || tripBudget <= 0) {
-      setPkgError("enter a positive package budget in rupees");
-      return;
-    }
-    if (pk.feed === "live" && budget && budget.remaining <= 0) {
-      setPkgError(
-        "lifetime serpapi budget is spent — switch the feed to REPLAY (cached results stay available)",
-      );
+      setPkgError("please enter a total budget for the trip");
       return;
     }
     setPPending(true);
@@ -850,10 +819,8 @@ export default function Home() {
         travel_class: pk.cabin,
         adults: pk.adults,
         children: pk.kids,
-        feed: pk.feed,
       });
       setPkg(res);
-      setBudget(res.budget);
       requestAnimationFrame(() =>
         pkgRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }),
       );
@@ -939,12 +906,12 @@ export default function Home() {
           list: flight.returns,
         });
       if (flight.selected.length)
-        out.push({ cap: "Fare pairs", list: flight.selected });
+        out.push({ cap: "Recommended pairs", list: flight.selected });
       return out;
     }
     const out: { cap: string; list: FlightOption[] }[] = [];
-    if (flight.best.length) out.push({ cap: "Top fares", list: flight.best });
-    if (flight.others.length) out.push({ cap: "All other fares", list: flight.others });
+    if (flight.best.length) out.push({ cap: "Lowest fares", list: flight.best });
+    if (flight.others.length) out.push({ cap: "More fares", list: flight.others });
     return out;
   })();
 
@@ -961,67 +928,55 @@ export default function Home() {
 
       {/* ------------------------------------------------------- hero */}
       <section className="hero">
-        <div className="hero-grid" />
-        <div className="hero-beam" />
-        <div className="hero-eyebrow">
-          <span className="pulse" />
-          <span className="mini">Live market boards — Google Flights · Google Hotels · INR</span>
-        </div>
-        <h1 className="hero-title">
-          <span className="bleed">NEVER OVERPAY</span>
-          <span className="solid">
-            FOR A SEAT<em>.</em>
-          </span>
-        </h1>
-        <p className="hero-sub">
-          Vovage reads the market before you do — Google&rsquo;s live fare
-          boards for seats and stays, priced in rupees, cross-checked against
-          our own economic models. Flights and stays, one instrument.
-        </p>
-      </section>
+        <div className="hero-media" aria-hidden />
+        <div className="hero-scrim" aria-hidden />
 
-      <Ticker items={TICKER} />
-
-      {/* ------------------------------------------------------- console */}
-      <section className="console">
-        <div className="console-tabs">
-          <button
-            className={`console-tab${panel === "flights" ? " active" : ""}`}
-            onClick={() => setPanel("flights")}
-          >
-            Flights
-          </button>
-          <button
-            className={`console-tab${panel === "stays" ? " active" : ""}`}
-            onClick={() => setPanel("stays")}
-          >
-            Stays
-          </button>
-          <button
-            className={`console-tab${panel === "packages" ? " active" : ""}`}
-            onClick={() => setPanel("packages")}
-          >
-            Packages
-          </button>
-          <button
-            className={`console-tab${panel === "predict" ? " active" : ""}`}
-            onClick={() => setPanel("predict")}
-          >
-            Predict
-          </button>
-          <div className="console-budget display">
-            <span className="mini">live calls</span>
-            <b>{budget ? budget.remaining : "—"}/{budget?.max ?? 5}</b>
+        <div className="hero-content">
+          <div className="hero-eyebrow">
+            <span className="rule" />
+            <span className="mini">The world, within reach</span>
+            <span className="rule" />
           </div>
+          <h1 className="hero-title">
+            Where to <em>next?</em>
+          </h1>
         </div>
+
+        {/* ------------------------------------------------- search widget */}
+        <section className="console" aria-label="Plan your journey">
+          <div className="console-tabs">
+            <button
+              className={`console-tab${panel === "flights" ? " active" : ""}`}
+              onClick={() => setPanel("flights")}
+            >
+              Flights
+            </button>
+            <button
+              className={`console-tab${panel === "stays" ? " active" : ""}`}
+              onClick={() => setPanel("stays")}
+            >
+              Stays
+            </button>
+            <button
+              className={`console-tab${panel === "packages" ? " active" : ""}`}
+              onClick={() => setPanel("packages")}
+            >
+              Packages
+            </button>
+            <button
+              className={`console-tab${panel === "predict" ? " active" : ""}`}
+              onClick={() => setPanel("predict")}
+            >
+              Insights
+            </button>
+          </div>
 
         <div className="console-body">
           {/* ================= live flights ================= */}
           {panel === "flights" && (
             <div className="form-grid">
               <AirportField
-                n="01"
-                cap="Fly from"
+                cap="From"
                 value={fh.origin}
                 onPick={(a) => patchFh({ origin: a })}
               />
@@ -1035,13 +990,12 @@ export default function Home() {
                 ⇄
               </button>
               <AirportField
-                n="02"
-                cap="Fly to"
+                cap="To"
                 value={fh.destination}
                 onPick={(a) => patchFh({ destination: a })}
               />
 
-              <Field n="03" cap="Departs" className="span4">
+              <Field cap="Departure" className="span4">
                 <input
                   type="date"
                   value={fh.outbound}
@@ -1049,7 +1003,7 @@ export default function Home() {
                   onChange={(e) => patchFh({ outbound: e.target.value })}
                 />
               </Field>
-              <Field n="04" cap="Returns" className="span4">
+              <Field cap="Return" className="span4">
                 <input
                   type="date"
                   value={fh.ret}
@@ -1057,7 +1011,7 @@ export default function Home() {
                   onChange={(e) => patchFh({ ret: e.target.value })}
                 />
               </Field>
-              <Field n="05" cap="Cabin" className="span4">
+              <Field cap="Cabin" className="span4">
                 <div className="seg" role="radiogroup">
                   {[
                     ["economy", "Economy"],
@@ -1079,7 +1033,7 @@ export default function Home() {
                 </div>
               </Field>
 
-              <Field n="06" cap="Adults" className="stepper span2">
+              <Field cap="Adults" className="stepper span2">
                 <Stepper
                   value={fh.adults}
                   onChange={(v) => patchFh({ adults: v })}
@@ -1087,7 +1041,7 @@ export default function Home() {
                   max={8}
                 />
               </Field>
-              <Field n="07" cap="Children" className="stepper span2">
+              <Field cap="Children" className="stepper span2">
                 <Stepper
                   value={fh.kids}
                   onChange={(v) => patchFh({ kids: v })}
@@ -1095,25 +1049,15 @@ export default function Home() {
                   max={8}
                 />
               </Field>
-              <Field n="08" cap="Fares feed" className="span4"
-                aside={fh.feed === "live" ? "spends budget" : "zero cost"}
-              >
-                <Seg
-                  value={fh.feed}
-                  onChange={(v) => patchFh({ feed: v as LiveFeed })}
-                  options={["live", "replay"]}
-                />
-              </Field>
 
-              <div className="launch" style={{ gridColumn: "span 4" }}>
+              <div className="launch" style={{ gridColumn: "span 8" }}>
                 <div className="launch-inner" style={{ padding: "30px 0 20px" }}>
                   <p className="hint">
-                    {fh.feed === "live"
-                      ? "One real SerpApi round-trip call — then cached forever."
-                      : "Sample board from a captured search — zero calls spent."}
+                    Fares straight from the market — every search is kept on
+                    file and replayed instantly at no cost.
                   </p>
                   <button className="launch-btn" onClick={runFlight} disabled={fPending}>
-                    {fPending ? "Reading the board…" : "Search fares"}
+                    {fPending ? "Searching…" : "Search flights"}
                   </button>
                 </div>
               </div>
@@ -1123,16 +1067,16 @@ export default function Home() {
           {/* ================= live stays ================= */}
           {panel === "stays" && (
             <div className="form-grid">
-              <Field n="01" cap="Where" className="span6" aside={sh.q ? "google hotels" : "01"}>
+              <Field cap="Destination" className="span6" aside={sh.q ? "hotels" : undefined}>
                 <input
                   className="control display"
                   value={sh.q}
-                  placeholder="Bali Resorts, Goa, Shimla —"
+                  placeholder="Bali, Goa, Shimla —"
                   onChange={(e) => patchSh({ q: e.target.value })}
                 />
               </Field>
 
-              <Field n="02" cap="Check-in" className="span3">
+              <Field cap="Check-in" className="span3">
                 <input
                   type="date"
                   value={sh.checkIn}
@@ -1140,7 +1084,7 @@ export default function Home() {
                   onChange={(e) => patchSh({ checkIn: e.target.value })}
                 />
               </Field>
-              <Field n="03" cap="Check-out" className="span3">
+              <Field cap="Check-out" className="span3">
                 <input
                   type="date"
                   value={sh.checkOut}
@@ -1149,7 +1093,7 @@ export default function Home() {
                 />
               </Field>
 
-              <Field n="04" cap="Adults" className="stepper span2">
+              <Field cap="Adults" className="stepper span2">
                 <Stepper
                   value={sh.adults}
                   onChange={(v) => patchSh({ adults: v })}
@@ -1157,7 +1101,7 @@ export default function Home() {
                   max={8}
                 />
               </Field>
-              <Field n="05" cap="Children" className="stepper span2">
+              <Field cap="Children" className="stepper span2">
                 <Stepper
                   value={sh.kids}
                   onChange={(v) => patchSh({ kids: v })}
@@ -1165,7 +1109,7 @@ export default function Home() {
                   max={8}
                 />
               </Field>
-              <Field n="06" cap="Sort" className="select span2">
+              <Field cap="Sort" className="select span2">
                 <select
                   className="control display"
                   value={sh.sort}
@@ -1177,28 +1121,14 @@ export default function Home() {
                 </select>
               </Field>
 
-              <Field
-                n="07"
-                cap="Fares feed"
-                className="span4"
-                aside={sh.feed === "live" ? "spends budget" : "zero cost"}
-              >
-                <Seg
-                  value={sh.feed}
-                  onChange={(v) => patchSh({ feed: v as LiveFeed })}
-                  options={["live", "replay"]}
-                />
-              </Field>
-
-              <div className="launch" style={{ gridColumn: "span 2" }}>
+              <div className="launch" style={{ gridColumn: "span 6" }}>
                 <div className="launch-inner" style={{ padding: "30px 0 20px" }}>
                   <p className="hint">
-                    {sh.feed === "live"
-                      ? "One real SerpApi hotels call — the whole board in one shot."
-                      : "Sample board from a captured search — zero calls spent."}
+                    Live availability across our stay partners — kept on file
+                    for instant replays.
                   </p>
                   <button className="launch-btn" onClick={runStays} disabled={sPending}>
-                    {sPending ? "Reading the board…" : "Search stays"}
+                    {sPending ? "Searching…" : "Search stays"}
                   </button>
                 </div>
               </div>
@@ -1209,8 +1139,7 @@ export default function Home() {
           {panel === "packages" && (
             <div className="form-grid">
               <AirportField
-                n="01"
-                cap="Fly from"
+                cap="From"
                 value={pk.origin}
                 onPick={(a) => patchPk({ origin: a })}
               />
@@ -1224,14 +1153,13 @@ export default function Home() {
                 ⇄
               </button>
               <AirportField
-                n="02"
-                cap="Fly to"
+                cap="To"
                 value={pk.destination}
                 onPick={(a) => patchPk({ destination: a })}
               />
 
-              <Field n="03" cap="Stay at" className="span6"
-                aside={pk.q ? "google hotels" : "03"}
+              <Field cap="Stay near" className="span6"
+                aside={pk.q ? "hotels" : undefined}
               >
                 <input
                   className="control display"
@@ -1240,7 +1168,7 @@ export default function Home() {
                   onChange={(e) => patchPk({ q: e.target.value })}
                 />
               </Field>
-              <Field n="04" cap="All-in budget" className="span6"
+              <Field cap="Total budget" className="span6"
                 aside={`${symbol("INR")} total`}
               >
                 <input
@@ -1253,7 +1181,7 @@ export default function Home() {
                 />
               </Field>
 
-              <Field n="05" cap="Departs" className="span4">
+              <Field cap="Departs" className="span4">
                 <input
                   type="date"
                   value={pk.outbound}
@@ -1261,7 +1189,7 @@ export default function Home() {
                   onChange={(e) => patchPk({ outbound: e.target.value })}
                 />
               </Field>
-              <Field n="06" cap="Returns" className="span4">
+              <Field cap="Returns" className="span4">
                 <input
                   type="date"
                   value={pk.ret}
@@ -1269,7 +1197,7 @@ export default function Home() {
                   onChange={(e) => patchPk({ ret: e.target.value })}
                 />
               </Field>
-              <Field n="07" cap="Adults" className="stepper span2">
+              <Field cap="Adults" className="stepper span2">
                 <Stepper
                   value={pk.adults}
                   onChange={(v) => patchPk({ adults: v })}
@@ -1277,7 +1205,7 @@ export default function Home() {
                   max={8}
                 />
               </Field>
-              <Field n="08" cap="Children" className="stepper span2">
+              <Field cap="Children" className="stepper span2">
                 <Stepper
                   value={pk.kids}
                   onChange={(v) => patchPk({ kids: v })}
@@ -1286,7 +1214,7 @@ export default function Home() {
                 />
               </Field>
 
-              <Field n="09" cap="Cabin" className="span4">
+              <Field cap="Cabin" className="span4">
                 <div className="seg" role="radiogroup">
                   {[
                     ["economy", "Economy"],
@@ -1307,25 +1235,15 @@ export default function Home() {
                   ))}
                 </div>
               </Field>
-              <Field n="10" cap="Fares feed" className="span4"
-                aside={pk.feed === "live" ? "spends budget" : "zero cost"}
-              >
-                <Seg
-                  value={pk.feed}
-                  onChange={(v) => patchPk({ feed: v as LiveFeed })}
-                  options={["live", "replay"]}
-                />
-              </Field>
 
-              <div className="launch" style={{ gridColumn: "span 4" }}>
+              <div className="launch" style={{ gridColumn: "span 8" }}>
                 <div className="launch-inner" style={{ padding: "26px 0 20px" }}>
                   <p className="hint">
-                    {pk.feed === "live"
-                      ? "At most two real calls — one fare board, one stay board. Cache-first."
-                      : "Both boards replay from captured searches — zero calls spent."}
+                    One live check for flights and one for stays — both kept
+                    on file for instant replays.
                   </p>
                   <button className="launch-btn" onClick={runPackages} disabled={pPending}>
-                    {pPending ? "Building packages…" : "Build packages"}
+                    {pPending ? "Curating…" : "Find packages"}
                   </button>
                 </div>
               </div>
@@ -1344,7 +1262,7 @@ export default function Home() {
               </div>
               {predictKind === "flights" ? (
                 <div className="form-grid">
-                  <Field n="01" cap="From" className="select span5">
+                  <Field cap="From" className="select span5">
                     <Select
                       value={flightPred.source_city}
                       onChange={(v) => patchFlight({ source_city: v })}
@@ -1358,7 +1276,7 @@ export default function Home() {
                   >
                     ⇄
                   </button>
-                  <Field n="02" cap="To" className="select span5">
+                  <Field cap="To" className="select span5">
                     <Select
                       value={flightPred.destination_city}
                       onChange={(v) => patchFlight({ destination_city: v })}
@@ -1366,7 +1284,7 @@ export default function Home() {
                     />
                   </Field>
 
-                  <Field n="03" cap="Departs" className="select span4">
+                  <Field cap="Departs" className="select span4">
                     <Select
                       value={flightPred.departure_time}
                       onChange={(v) => patchFlight({ departure_time: v })}
@@ -1378,7 +1296,7 @@ export default function Home() {
                       }
                     />
                   </Field>
-                  <Field n="04" cap="Lands" className="select span4">
+                  <Field cap="Lands" className="select span4">
                     <Select
                       value={flightPred.arrival_time}
                       onChange={(v) => patchFlight({ arrival_time: v })}
@@ -1390,7 +1308,7 @@ export default function Home() {
                       }
                     />
                   </Field>
-                  <Field n="05" cap="Stops" className="span4">
+                  <Field cap="Stops" className="span4">
                     <Seg
                       value={flightPred.stops}
                       onChange={(v) => patchFlight({ stops: v })}
@@ -1398,7 +1316,7 @@ export default function Home() {
                     />
                   </Field>
 
-                  <Field n="06" cap="Airline" className="select span4">
+                  <Field cap="Airline" className="select span4">
                     <Select
                       value={flightPred.airline}
                       onChange={(v) => patchFlight({ airline: v })}
@@ -1410,14 +1328,14 @@ export default function Home() {
                       }
                     />
                   </Field>
-                  <Field n="07" cap="Cabin" className="span4">
+                  <Field cap="Cabin" className="span4">
                     <Seg
                       value={flightPred.class}
                       onChange={(v) => patchFlight({ class: v })}
                       options={["Economy", "Business"]}
                     />
                   </Field>
-                  <Field n="08" cap="Air time, hours" className="span4">
+                  <Field cap="Flight time, hours" className="span4">
                     <div className="slider-row">
                       <input
                         className="num"
@@ -1444,7 +1362,7 @@ export default function Home() {
                     </div>
                   </Field>
 
-                  <Field n="09" cap="Book ahead, days" className="span8">
+                  <Field cap="Book this many days ahead" className="span8">
                     <div className="slider-row">
                       <input
                         className="num"
@@ -1472,25 +1390,25 @@ export default function Home() {
                   <div className="launch" style={{ gridColumn: "span 4" }}>
                     <div className="launch-inner" style={{ padding: "26px 0 20px" }}>
                       <p className="hint">
-                        Estimates the fare <em>now</em> from 37 market features —
-                        not yesterday&rsquo;s brochure.
+                        An indicative fare, modelled on route, timing, season
+                        and demand.
                       </p>
                       <button className="launch-btn" onClick={submit} disabled={pending}>
-                        {pending ? "Reading the market…" : "Estimate fare"}
+                        {pending ? "Modelling…" : "Estimate fare"}
                       </button>
                     </div>
                   </div>
                 </div>
               ) : (
                 <div className="form-grid">
-                  <Field n="01" cap="Property" className="select span4">
+                  <Field cap="Property" className="select span4">
                     <Select
                       value={stayPred.hotel}
                       onChange={(v) => patchStay({ hotel: v })}
                       options={stayOptions?.hotel ?? ["City Hotel", "Resort Hotel"]}
                     />
                   </Field>
-                  <Field n="02" cap="Month" className="select span4">
+                  <Field cap="Month" className="select span4">
                     <Select
                       value={stayPred.arrival_date_month}
                       onChange={(v) => patchStay({ arrival_date_month: v })}
@@ -1501,7 +1419,7 @@ export default function Home() {
                       ]}
                     />
                   </Field>
-                  <Field n="03" cap="Year" className="select span4">
+                  <Field cap="Year" className="select span4">
                     <Select
                       value={String(stayPred.arrival_date_year)}
                       onChange={(v) => patchStay({ arrival_date_year: +v })}
@@ -1509,7 +1427,7 @@ export default function Home() {
                     />
                   </Field>
 
-                  <Field n="04" cap="Arrival week" className="stepper span4">
+                  <Field cap="Arrival week" className="stepper span4">
                     <Stepper
                       value={stayPred.arrival_date_week_number}
                       onChange={(v) => patchStay({ arrival_date_week_number: v })}
@@ -1517,7 +1435,7 @@ export default function Home() {
                       max={53}
                     />
                   </Field>
-                  <Field n="05" cap="Day of month" className="stepper span4">
+                  <Field cap="Day of month" className="stepper span4">
                     <Stepper
                       value={stayPred.arrival_date_day_of_month}
                       onChange={(v) => patchStay({ arrival_date_day_of_month: v })}
@@ -1525,7 +1443,7 @@ export default function Home() {
                       max={31}
                     />
                   </Field>
-                  <Field n="06" cap="Adults" className="stepper span4">
+                  <Field cap="Adults" className="stepper span4">
                     <Stepper
                       value={stayPred.adults}
                       onChange={(v) => patchStay({ adults: v })}
@@ -1534,7 +1452,7 @@ export default function Home() {
                     />
                   </Field>
 
-                  <Field n="07" cap="Week-nights" className="stepper span4">
+                  <Field cap="Week-nights" className="stepper span4">
                     <Stepper
                       value={stayPred.stays_in_week_nights}
                       onChange={(v) => patchStay({ stays_in_week_nights: v })}
@@ -1542,7 +1460,7 @@ export default function Home() {
                       max={10}
                     />
                   </Field>
-                  <Field n="08" cap="Weekend-nights" className="stepper span4">
+                  <Field cap="Weekend-nights" className="stepper span4">
                     <Stepper
                       value={stayPred.stays_in_weekend_nights}
                       onChange={(v) => patchStay({ stays_in_weekend_nights: v })}
@@ -1554,11 +1472,11 @@ export default function Home() {
                   <div className="launch" style={{ gridColumn: "span 4" }}>
                     <div className="launch-inner" style={{ padding: "30px 0 20px" }}>
                       <p className="hint">
-                        Everything else — meals, channel, history — is inferred from
-                        the booking&rsquo;s own signal.
+                        An indicative nightly rate, modelled on the season,
+                        length of stay and party size.
                       </p>
                       <button className="launch-btn" onClick={submit} disabled={pending}>
-                        {pending ? "Reading the market…" : "Estimate night rate"}
+                        {pending ? "Modelling…" : "Estimate night rate"}
                       </button>
                     </div>
                   </div>
@@ -1568,13 +1486,16 @@ export default function Home() {
           )}
         </div>
       </section>
+      </section>
+
+      <Ticker items={TICKER} />
 
       {/* ------------------------------------------------------- live: flights board */}
       <div ref={flightRef} id="flight-board">
         {flightError && (
           <section className="board-error flash" role="alert" key="ferr">
-            <b>/// </b>
-            The board refused this query — {flightError}
+            <b>· </b>
+            We couldn&rsquo;t complete that search — {flightError}
           </section>
         )}
         {flight && !flightError && (
@@ -1584,19 +1505,19 @@ export default function Home() {
               {flight.insights?.low == null ? null : (
                 <div className="board-grid">
                   <div>
-                    <div className="cap mini">cheapest on the {flight.trip.outbound_date} · {flight.trip.return_date} board</div>
+                    <div className="cap mini">Lowest fare · {flight.trip.outbound_date} – {flight.trip.return_date}</div>
                     <span style={{ display: "block" }}>
                       <Money value={flight.insights.low} cur={fCur} locale={fLoc} />
                     </span>
                     {flight.insights.range.length === 2 && (
                       <div className="mini dim" style={{ marginTop: 10 }}>
-                        typical {fCur}{flight.insights.range[0]}–{fCur}
-                        {flight.insights.range[1]} · market {flight.insights.level}
+                        typically {fCur}{flight.insights.range[0]}–{fCur}
+                        {flight.insights.range[1]} · demand {flight.insights.level}
                       </div>
                     )}
                   </div>
                   <div className="board-spark">
-                    <div className="cap mini">fare history · {fCur}</div>
+                    <div className="cap mini">fare trend · {fCur}</div>
                     <Spark points={flight.insights.history.slice(-44)} />
                   </div>
                 </div>
@@ -1611,11 +1532,9 @@ export default function Home() {
               </div>
             ))}
             <div className="board-foot mini dim">
-              {flight.mock
-                ? "sample data — served from the captured fixture, no live call was made"
-                : flight.cached
-                  ? "served from cache — indexed the day it was fetched"
-                  : "live results via SerpApi — one call of the lifetime budget was spent"}
+              {flight.cached
+                ? "Results served from our cache — prices move quickly."
+                : "Live results — the freshest prices available."}
             </div>
           </section>
         )}
@@ -1625,8 +1544,8 @@ export default function Home() {
       <div ref={stayRef} id="stay-board">
         {stayError && (
           <section className="board-error flash" role="alert" key="serr">
-            <b>/// </b>
-            The board refused this query — {stayError}
+            <b>· </b>
+            We couldn&rsquo;t complete that search — {stayError}
           </section>
         )}
         {stay && !stayError && (
@@ -1643,11 +1562,9 @@ export default function Home() {
               ))}
             </div>
             <div className="board-foot mini dim">
-              {stay.mock
-                ? "sample data — served from the captured fixture, no live call was made"
-                : stay.cached
-                  ? "served from cache — indexed the day it was fetched"
-                  : "live results via SerpApi — one call of the lifetime budget was spent"}
+              {stay.cached
+                ? "Results served from our cache — prices move quickly."
+                : "Live results — the freshest prices available."}
             </div>
           </section>
         )}
@@ -1657,8 +1574,8 @@ export default function Home() {
       <div ref={pkgRef} id="package-board">
         {pkgError && (
           <section className="board-error flash" role="alert" key="pkgerr">
-            <b>/// </b>
-            The package builder refused this query — {pkgError}
+            <b>· </b>
+            We couldn&rsquo;t build that package — {pkgError}
           </section>
         )}
         {pkg && !pkgError && (
@@ -1677,16 +1594,16 @@ export default function Home() {
               </div>
               <div className="pkg-intro">
                 <div>
-                  <div className="cap mini">the “{pkg.q}” board</div>
+                  <div className="cap mini">stays in “{pkg.q}”</div>
                   <h2 className="pkg-title">Three ways to take this trip.</h2>
                 </div>
                 <div className="pkg-board-meta">
                   <div>
-                    <div className="cap mini">flight board</div>
+                    <div className="cap mini">Flight results</div>
                     <Tags search={pkg.boards.flight} />
                   </div>
                   <div>
-                    <div className="cap mini">stay board</div>
+                    <div className="cap mini">Stay results</div>
                     <Tags search={pkg.boards.hotel} />
                   </div>
                 </div>
@@ -1704,11 +1621,9 @@ export default function Home() {
               ))}
             </div>
             <div className="board-foot mini dim">
-              {pkg.boards.flight.mock && pkg.boards.hotel.mock
-                ? "sample data — both boards replayed from captured fixtures, no live call was made"
-                : pkg.boards.flight.cached && pkg.boards.hotel.cached
-                  ? "both boards served from cache — no calls spent"
-                  : "live boards via SerpApi — only uncached legs spend from the lifetime budget"}
+              {pkg.boards.flight.cached && pkg.boards.hotel.cached
+                ? "Results served from our cache — prices move quickly."
+                : "Live results — the freshest prices available."}
             </div>
           </section>
         )}
@@ -1723,8 +1638,8 @@ export default function Home() {
             key="error"
             role="alert"
           >
-            <b>/// </b>
-            The engine refused this query — {result.message}
+            <b>· </b>
+            We couldn&rsquo;t estimate that — {result.message}
           </section>
         ) : (
           <section
@@ -1755,12 +1670,13 @@ export default function Home() {
       </div>
 
       <footer className="footer">
-        <span className="mini">
-          <b>Vovage</b> — fare &amp; rate intelligence
+        <span className="wordmark footer-mark">
+          VOVAGE<i>.</i>
         </span>
         <span className="mini">
-          Live boards through SerpApi · models served on-device. Estimates, not quotes.
+          Prices are estimates, not offers — confirmed only at booking.
         </span>
+        <span className="mini">© {new Date().getFullYear()} Vovage</span>
       </footer>
     </>
   );

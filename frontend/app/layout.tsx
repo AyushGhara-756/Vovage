@@ -1,11 +1,12 @@
 import type { Metadata, Viewport } from "next";
-import { Inter, Space_Grotesk } from "next/font/google";
+import { Inter, Playfair_Display } from "next/font/google";
 import "./globals.css";
 
-const grotesk = Space_Grotesk({
+const playfair = Playfair_Display({
   subsets: ["latin"],
   variable: "--font-display",
-  weight: ["300", "400", "500", "700"],
+  weight: ["400", "500", "600", "700"],
+  style: ["normal", "italic"],
 });
 
 const inter = Inter({
@@ -14,9 +15,9 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Vovage — fare intelligence",
+  title: "Vovage — Where to next?",
   description:
-    "Predict airfare before you book, and what a night will really cost you, before you pay.",
+    "The world, within reach. Begin your journey with Vovage.",
 };
 
 export const viewport: Viewport = {
@@ -41,7 +42,7 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" data-theme="dark" suppressHydrationWarning>
-      <body className={`${grotesk.variable} ${inter.variable}`}>
+      <body className={`${playfair.variable} ${inter.variable}`}>
         {/* theme must resolve before first paint — no flash, no flip */}
         <script dangerouslySetInnerHTML={{ __html: themeBoot }} />
         {children}
