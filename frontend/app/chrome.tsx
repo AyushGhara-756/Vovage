@@ -1,11 +1,24 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
+import {
+  clearSession,
+  getSession,
+  onSessionChange,
+  type VovageSession,
+} from "@/lib/session";
 
 export function Chrome() {
   const [scrolled, setScrolled] = useState(false);
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [toast, setToast] = useState<string | null>(null);
+  const [session, setSessionState] = useState<VovageSession | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [confirmingOut, setConfirmingOut] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const router = useRouter();
 
   useEffect(() => {
     setScrolled(window.scrollY > 24);
@@ -20,10 +33,42 @@ export function Chrome() {
   }, []);
 
   useEffect(() => {
+    const sync = () => {
+      setSessionState(getSession());
+      setMenuOpen(false);
+      setConfirmingOut(false);
+    };
+    sync();
+    return onSessionChange(sync);
+  }, []);
+
+  useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(null), 3200);
     return () => clearTimeout(t);
   }, [toast]);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (!menuRef.current?.contains(e.target as Node)) {
+        setMenuOpen(false);
+        setConfirmingOut(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setMenuOpen(false);
+        setConfirmingOut(false);
+      }
+    };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [menuOpen]);
 
   const flip = () => {
     const next = theme === "dark" ? "light" : "dark";
@@ -36,25 +81,84 @@ export function Chrome() {
     setTheme(next);
   };
 
-  const signin = () => {
-    setToast("Sign-in is coming soon — you can search and plan freely meanwhile.");
+  const signOut = () => {
+    clearSession();
+    setMenuOpen(false);
+    setConfirmingOut(false);
+    router.push("/signin");
   };
+
+  const initial = session?.name?.trim()?.[0]?.toUpperCase() ?? "";
 
   return (
     <header className={`chrome${scrolled ? " scrolled" : ""}`}>
-      <a href="#" className="wordmark" aria-label="Vovage home">
+      <Link href="/" className="wordmark" aria-label="Vovage home">
         VOVAGE<i>.</i>
-      </a>
+      </Link>
       <nav className="chrome-right">
         <span className="chrome-note mini">Estimates, not quotes</span>
-        <button
-          className="signin-btn"
-          type="button"
-          aria-label="Sign in to Vovage"
-          onClick={signin}
-        >
-          Sign in
-        </button>
+        {session ? (
+          <div className="acct-wrap" ref={menuRef}>
+            <button
+              className="acct-btn"
+              type="button"
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+              aria-label="Account menu"
+              onClick={() => setMenuOpen((o) => !o)}
+            >
+              <span className="acct-avatar">{initial}</span>
+              <span className="acct-name">{session.name}</span>
+            </button>
+            {menuOpen && (
+              <div className="acct-menu" role="menu">
+                <div className="acct-id">
+                  <b>{session.name}</b>
+                  <span>{session.email}</span>
+                </div>
+                {confirmingOut ? (
+                  <div className="acct-confirm">
+                    <p>Sign out of Vovage?</p>
+                    <div className="acct-confirm-actions">
+                      <button
+                        type="button"
+                        className="no"
+                        onClick={() => setConfirmingOut(false)}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        className="yes"
+                        role="menuitem"
+                        onClick={signOut}
+                      >
+                        Sign Out
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className="acct-item danger"
+                    role="menuitem"
+                    onClick={() => setConfirmingOut(true)}
+                  >
+                    Sign Out
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        ) : (
+          <Link
+            href="/signin"
+            className="signin-btn"
+            aria-label="Sign in to Vovage"
+          >
+            Sign in
+          </Link>
+        )}
         <button
           className="theme-toggle"
           onClick={flip}

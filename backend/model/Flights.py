@@ -28,7 +28,7 @@ class FlightNetwork(nn.Module):
         return self.network(x)
 
 
-def load_artifacts(weights=MODEL_DIR / "flight_price_model_01.pth",
+def load_artifacts(weights=MODEL_DIR / "flight_price_model_02.pth",
                    scaler_path=MODEL_DIR / "flight_scaler.pkl",
                    meta_path=MODEL_DIR / "flight_meta.json"):
     with open(meta_path) as f:

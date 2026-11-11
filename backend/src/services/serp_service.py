@@ -180,10 +180,14 @@ def _insights(pi):
 
 def shape_flight(raw):
     """Round-trip boards: departure_flights / return_flights / selected_flights.
-    One-way boards: best_flights / other_flights. Whichever exist get shaped."""
+    One-way boards: best_flights / other_flights. Whichever exist get shaped.
+
+    SerpApi round-trip options carry only the outbound legs in ``flights`` —
+    the price is the full round-trip fare per traveller."""
+    sp = raw.get("search_parameters", {})
     insights = _insights(raw.get("price_insights"))
     return {
-        "currency": raw.get("search_parameters", {}).get("currency"),
+        "currency": sp.get("currency"),
         "insights": insights,
         "departures": [_option(o) for o in (raw.get("departure_flights") or [])],
         "returns": [_option(o) for o in (raw.get("return_flights") or [])],
@@ -191,10 +195,10 @@ def shape_flight(raw):
         "best": [_option(o) for o in (raw.get("best_flights") or [])],
         "others": [_option(o) for o in (raw.get("other_flights") or [])],
         "trip": {
-            "origin": raw.get("search_parameters", {}).get("departure_id"),
-            "destination": raw.get("search_parameters", {}).get("arrival_id"),
-            "outbound_date": raw.get("search_parameters", {}).get("outbound_date"),
-            "return_date": raw.get("search_parameters", {}).get("return_date"),
+            "origin": sp.get("departure_id"),
+            "destination": sp.get("arrival_id"),
+            "outbound_date": sp.get("outbound_date"),
+            "return_date": sp.get("return_date"),
         },
     }
 

@@ -588,11 +588,15 @@ function PackageCard({
   cur,
   loc,
   budget,
+  farePer,
+  party,
 }: {
   p: PackageOffer;
   cur: string;
   loc: string;
   budget: number;
+  farePer?: number;
+  party?: number;
 }) {
   const f = p.flight;
   const s = p.stay;
@@ -616,6 +620,7 @@ function PackageCard({
 
       <div className="pkg-split mini">
         <span>flight <b>{money(p.breakdown.flight)}</b></span>
+        {farePer && <span className="dim"> ({money(farePer)} × {party})</span>}
         <span className="dot">+</span>
         <span>stay <b>{money(p.breakdown.hotel)}</b></span>
       </div>
@@ -990,6 +995,7 @@ export default function Home() {
             ],
             ["Nights", `${nights} (${stayPred.stays_in_week_nights}wk + ${stayPred.stays_in_weekend_nights}end)`],
             ["Party", `${stayPred.adults} adult${stayPred.adults > 1 ? "s" : ""}`],
+            ["Basis", "EUR ADR model × indicative FX"],
           ],
         });
       }
@@ -1766,6 +1772,8 @@ export default function Home() {
                   cur={symbol(pkg.currency)}
                   loc={localeOf(pkg.currency)}
                   budget={pkg.trip_budget}
+                  farePer={pkg.fare_per_traveller}
+                  party={pkg.party.travellers}
                 />
               ))}
             </div>
