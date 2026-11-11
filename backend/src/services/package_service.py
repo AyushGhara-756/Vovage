@@ -25,12 +25,16 @@ class PackageError(Exception):
 
 
 def _fares(flight):
-    """Round-trip fare candidates, cheapest-first board order."""
+    """Round-trip fare candidates, cheapest-first board order.
+    SerpApi prices are per traveller; unpriced options (Google often can't
+    quote smaller/regional routes) are not bookable and are skipped."""
     for key in ("selected", "best", "others"):
         fares = [o for o in (flight.get(key) or []) if o.get("price")]
         if fares:
             return fares
-    raise PackageError("flight board came back without any farespairs")
+    raise PackageError(
+        "no bookable round-trip fares for this route — Google Flights often "
+        "can't price smaller or regional airports")
 
 
 def _cheapest_fare(flight):
@@ -149,5 +153,6 @@ def build_packages(flight, hotel, budget, *, nights, adults=2, children=0):
                   "travellers": travellers},
         "q": hotel.get("q"),
         "trip": flight.get("trip"),
+        "fare_per_traveller": fare["price"],
         "packages": packages,
     }

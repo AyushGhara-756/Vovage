@@ -278,6 +278,7 @@ export type PackageSearch = {
   trip_budget: number;
   nights: number;
   party: { adults: number; children: number; travellers: number };
+  fare_per_traveller: number;
   q: string | null;
   trip: FlightSearch["trip"] | null;
   packages: PackageOffer[];

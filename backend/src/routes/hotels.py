@@ -4,6 +4,7 @@ from flask import request, jsonify, Blueprint
 from ..services import serp_service
 from ..services.serp_service import SerpError, shape_hotel
 
+import os
 import re
 
 model, scaler, meta = load_artifacts()
@@ -14,6 +15,9 @@ ID_COLS = ["name", "email", "phone-number", "credit_card"]
 
 _DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _SORTS = {"3", "8", "9", "13"}
+
+# the ADR model is trained on the European dataset (EUR); the app shows rupees
+INDICATIVE_EUR_INR = float(os.environ.get("EUR_INR_RATE", "104.5"))
 
 hotels_bp = Blueprint("hotel", __name__, url_prefix="/api/hotel")
 @hotels_bp.route("/options", methods=["GET"])
@@ -42,7 +46,8 @@ def predict():
     except Exception as e:
         return jsonify({"error": str(e)}), 400
 
-    return jsonify({"adr": [round(float(p), 2) for p in price]})
+    inr = [round(float(p) * INDICATIVE_EUR_INR, 2) for p in price]
+    return jsonify({"adr": inr, "currency": "INR"})
 
 
 @hotels_bp.route("/search", methods=["GET"])
