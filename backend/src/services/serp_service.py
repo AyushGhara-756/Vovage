@@ -38,6 +38,24 @@ class SerpError(Exception):
     """Raised for anything wrong with a SerpApi round-trip."""
 
 
+_NO_RESULTS_MESSAGES = {
+    "flight": (
+        "No flights were found for that route and dates. "
+        "Try nearby airports or different dates."
+    ),
+    "hotel": (
+        "No stays were found for that destination and dates. "
+        "Try another place or different dates."
+    ),
+}
+
+
+def _no_results_message(kind):
+    return _NO_RESULTS_MESSAGES.get(
+        kind, "No results were found for that search. Try different options."
+    )
+
+
 def _api_key():
     key = os.environ.get("SERP_API") or os.environ.get("SERPAPI_KEY")
     if not key and (ROOT / ".env").exists():
@@ -103,7 +121,10 @@ def _serp_request(kind, params):
         raise SerpError("could not reach serpapi") from exc
 
     if isinstance(raw, dict) and raw.get("error"):
-        raise SerpError(str(raw["error"]))
+        message = str(raw["error"])
+        if "returned any results" in message.lower():
+            raise SerpError(_no_results_message(kind))
+        raise SerpError(message)
 
     return raw
 

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   useEffect,
   useRef,
@@ -9,6 +10,8 @@ import {
   type ReactNode,
 } from "react";
 import { searchAirports, type AirportHit } from "@/lib/api";
+import { verificationResendOptions } from "@/lib/auth-redirect";
+import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
 export function AuthShell({
   photo,
@@ -167,6 +170,87 @@ export function AirportField({
   );
 }
 
+export function normalizeCity(value: string, options: string[] = []) {
+  const clean = value.trim().replace(/\s+/g, " ");
+  if (!clean) return "";
+  const match = options.find((c) => c.toLowerCase() === clean.toLowerCase());
+  if (match) return match;
+  return clean.replace(/\b[a-z]/g, (c) => c.toUpperCase());
+}
+
+export function CityField({
+  value,
+  onChange,
+  options,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  options: string[];
+}) {
+  const [open, setOpen] = useState(false);
+  const boxRef = useRef<HTMLLabelElement>(null);
+
+  const q = value.trim().toLowerCase();
+  const hits = options.filter(
+    (c) => !q || c.toLowerCase().includes(q),
+  );
+
+  useEffect(() => {
+    const onDoc = (e: MouseEvent) => {
+      if (!boxRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, []);
+
+  return (
+    <label className="field auth-field ac select" ref={boxRef}>
+      <span className="cap mini">
+        Home city
+        <i>optional</i>
+      </span>
+      <input
+        className="control display"
+        value={value}
+        placeholder="e.g. Mumbai"
+        autoComplete="address-level2"
+        autoCapitalize="words"
+        autoCorrect="on"
+        spellCheck
+        onChange={(e) => {
+          onChange(e.target.value);
+          setOpen(true);
+        }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => {
+          const next = normalizeCity(value, options);
+          if (next !== value) onChange(next);
+          setOpen(false);
+        }}
+      />
+      {open && hits.length > 0 && (
+        <div className="auth-ac" role="listbox">
+          {hits.map((c) => (
+            <button
+              key={c}
+              type="button"
+              role="option"
+              aria-selected={c === value}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                onChange(c);
+                setOpen(false);
+              }}
+            >
+              <span className="place">{c}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </label>
+  );
+}
+
 export function Alert({
   kind,
   children,
@@ -201,3 +285,55 @@ export function BusyButton({
     </button>
   );
 }
+
+export function VerifyPending({
+  email,
+  onBack,
+}: {
+  email: string;
+  onBack: () => void;
+}) {
+  const supabase = getSupabaseBrowserClient();
+  const [note, setNote] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const resend = async () => {
+    setBusy(true);
+    setNote(null);
+    const { error } = await supabase.auth.resend(
+      verificationResendOptions(email, window.location.origin),
+    );
+    setNote(
+      error
+        ? "Couldn't resend just now — please wait a minute and try again."
+        : "Verification link sent again. Check your inbox (and spam).",
+    );
+    setBusy(false);
+  };
+
+  return (
+    <>
+      <Alert kind="ok">
+        Account created. Supabase has emailed a verification link to{" "}
+        <b>{email}</b> — open it on this device to finish signing in.
+      </Alert>
+      {note && <p className="auth-note">{note}</p>}
+      <div className="auth-row" style={{ paddingTop: 14 }}>
+        <button
+          type="button"
+          className="auth-forgot"
+          onClick={resend}
+          disabled={busy}
+        >
+          {busy ? "Resending…" : "Resend verification email"}
+        </button>
+        <button type="button" className="auth-forgot" onClick={onBack}>
+          Back to form
+        </button>
+      </div>
+    </>
+  );
+}
+
+export { authErrorMessage, verifyErrorMessage } from "@/lib/auth-errors";
+export { safeNextPath } from "@/lib/safe-next";

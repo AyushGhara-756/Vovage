@@ -1,24 +1,22 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import {
-  clearSession,
-  getSession,
-  onSessionChange,
-  type VovageSession,
-} from "@/lib/session";
+import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import type { Session } from "@supabase/supabase-js";
 
 export function Chrome() {
   const [scrolled, setScrolled] = useState(false);
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [toast, setToast] = useState<string | null>(null);
-  const [session, setSessionState] = useState<VovageSession | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
+  const [profileName, setProfileName] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmingOut, setConfirmingOut] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
+  const supabase = getSupabaseBrowserClient();
 
   useEffect(() => {
     setScrolled(window.scrollY > 24);
@@ -33,20 +31,50 @@ export function Chrome() {
   }, []);
 
   useEffect(() => {
-    const sync = () => {
-      setSessionState(getSession());
+    supabase.auth.getSession().then(({ data }) => setSession(data.session));
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
+      setSession(s);
       setMenuOpen(false);
       setConfirmingOut(false);
-    };
-    sync();
-    return onSessionChange(sync);
-  }, []);
+    });
+    return () => sub.subscription.unsubscribe();
+  }, [supabase]);
+
+  useEffect(() => {
+    if (!session?.user) {
+      setProfileName(null);
+      return;
+    }
+    const meta = session.user.user_metadata as { full_name?: string } | null;
+    setProfileName(meta?.full_name ?? null);
+    supabase
+      .from("profiles")
+      .select("full_name")
+      .eq("id", session.user.id)
+      .single()
+      .then(({ data }) => {
+        if (data?.full_name) setProfileName(data.full_name);
+      });
+  }, [session, supabase]);
 
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(null), 3200);
     return () => clearTimeout(t);
   }, [toast]);
+
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("verified") === "1") {
+      setToast("Email verified — welcome aboard.");
+      url.searchParams.delete("verified");
+      window.history.replaceState(
+        {},
+        "",
+        `${url.pathname}${url.search}${url.hash}`,
+      );
+    }
+  }, []);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -81,14 +109,16 @@ export function Chrome() {
     setTheme(next);
   };
 
-  const signOut = () => {
-    clearSession();
+  const signOut = async () => {
+    await supabase.auth.signOut({ scope: "local" });
     setMenuOpen(false);
     setConfirmingOut(false);
     router.push("/signin");
+    router.refresh();
   };
 
-  const initial = session?.name?.trim()?.[0]?.toUpperCase() ?? "";
+  const initial =
+    (profileName ?? session?.user?.email ?? "V").trim()[0]?.toUpperCase() ?? "V";
 
   return (
     <header className={`chrome${scrolled ? " scrolled" : ""}`}>
@@ -97,7 +127,7 @@ export function Chrome() {
       </Link>
       <nav className="chrome-right">
         <span className="chrome-note mini">Estimates, not quotes</span>
-        {session ? (
+        {session?.user ? (
           <div className="acct-wrap" ref={menuRef}>
             <button
               className="acct-btn"
@@ -108,14 +138,17 @@ export function Chrome() {
               onClick={() => setMenuOpen((o) => !o)}
             >
               <span className="acct-avatar">{initial}</span>
-              <span className="acct-name">{session.name}</span>
+              <span className="acct-name">{profileName ?? "Account"}</span>
             </button>
             {menuOpen && (
               <div className="acct-menu" role="menu">
                 <div className="acct-id">
-                  <b>{session.name}</b>
-                  <span>{session.email}</span>
+                  <b>{profileName ?? "Traveller"}</b>
+                  <span>{session.user.email}</span>
                 </div>
+                <Link href="/profile" className="acct-item" role="menuitem">
+                  Profile &amp; saved searches
+                </Link>
                 {confirmingOut ? (
                   <div className="acct-confirm">
                     <p>Sign out of Vovage?</p>

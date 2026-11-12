@@ -165,6 +165,10 @@
   width: 100%;
 }
 
+.auth-field.ac.select input {
+  padding-right: 20px;
+}
+
 .auth-field.has-toggle input {
   padding-right: 74px;
 }
