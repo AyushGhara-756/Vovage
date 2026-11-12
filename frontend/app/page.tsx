@@ -28,6 +28,12 @@ import {
   type StayOption,
   type StaySearch,
 } from "@/lib/api";
+import { SaveSearchButton } from "./save-search";
+import { recordHistoryIfSignedIn } from "@/lib/account";
+
+type FlightQueryParams = Parameters<typeof searchLiveFlights>[0];
+type StayQueryParams = Parameters<typeof searchLiveStays>[0];
+type PackageQueryParams = Parameters<typeof searchPackages>[0];
 
 /* ---------------------------------------------------------------- primitives */
 
@@ -739,12 +745,14 @@ export default function Home() {
   const [flightNote, setFlightNote] = useState<string | null>(null);
   const [fPending, setFPending] = useState(false);
   const [fh, setFh] = useState(flightHuntDefaults);
+  const [flightQuery, setFlightQuery] = useState<FlightQueryParams | null>(null);
   const flightRef = useRef<HTMLDivElement>(null);
   const [stay, setStay] = useState<StaySearch | null>(null);
   const [stayError, setStayError] = useState<string | null>(null);
   const [stayNote, setStayNote] = useState<string | null>(null);
   const [sPending, setSPending] = useState(false);
   const [sh, setSh] = useState(stayHuntDefaults);
+  const [stayQuery, setStayQuery] = useState<StayQueryParams | null>(null);
   const stayRef = useRef<HTMLDivElement>(null);
 
   /* ----- package builder (flight + stay, priced as tiers) ----- */
@@ -753,6 +761,7 @@ export default function Home() {
   const [pkgNote, setPkgNote] = useState<string | null>(null);
   const [pPending, setPPending] = useState(false);
   const [pk, setPk] = useState(packageHuntDefaults);
+  const [pkgQuery, setPkgQuery] = useState<PackageQueryParams | null>(null);
   const pkgRef = useRef<HTMLDivElement>(null);
 
   /* ----- legacy predict console ----- */
@@ -835,8 +844,7 @@ export default function Home() {
       setFlightNote("The return date cannot be earlier than the departure date.");
       return;
     }
-    setFPending(true);
-    searchLiveFlights({
+    const query: FlightQueryParams = {
       origin: fh.origin.code,
       destination: fh.destination.code,
       outbound_date: fh.outbound,
@@ -844,9 +852,16 @@ export default function Home() {
       travel_class: fh.cabin,
       adults: fh.adults,
       children: fh.kids,
-    })
+    };
+    setFlightQuery(query);
+    setFPending(true);
+    searchLiveFlights(query)
       .then((res) => {
         setFlight(res);
+        void recordHistoryIfSignedIn({
+          search_type: "flight",
+          search_params: query,
+        });
         requestAnimationFrame(() =>
           flightRef.current?.scrollIntoView({
             behavior: "smooth",
@@ -878,17 +893,23 @@ export default function Home() {
       setStayNote("The check-out date cannot be earlier than the check-in date.");
       return;
     }
-    setSPending(true);
-    searchLiveStays({
+    const query: StayQueryParams = {
       q: sh.q.trim(),
       check_in_date: sh.checkIn,
       check_out_date: sh.checkOut,
       adults: sh.adults,
       children: sh.kids,
       sort_by: sh.sort,
-    })
+    };
+    setStayQuery(query);
+    setSPending(true);
+    searchLiveStays(query)
       .then((res) => {
         setStay(res);
+        void recordHistoryIfSignedIn({
+          search_type: "hotel",
+          search_params: query,
+        });
         requestAnimationFrame(() =>
           stayRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }),
         );
@@ -930,8 +951,7 @@ export default function Home() {
       setPkgNote("Please enter a total budget for the trip.");
       return;
     }
-    setPPending(true);
-    searchPackages({
+    const query: PackageQueryParams = {
       origin: pk.origin.code,
       destination: pk.destination.code,
       q: pk.q.trim(),
@@ -941,9 +961,16 @@ export default function Home() {
       travel_class: pk.cabin,
       adults: pk.adults,
       children: pk.kids,
-    })
+    };
+    setPkgQuery(query);
+    setPPending(true);
+    searchPackages(query)
       .then((res) => {
         setPkg(res);
+        void recordHistoryIfSignedIn({
+          search_type: "package",
+          search_params: query,
+        });
         requestAnimationFrame(() =>
           pkgRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }),
         );
@@ -1657,6 +1684,13 @@ export default function Home() {
           <section className="board flash" key={`fl-${flight.fetched_on}-${flight.cached}`}>
             <div className="board-head">
               <Tags search={flight} />
+              {flightQuery && (
+                <SaveSearchButton
+                  searchType="flight"
+                  params={{ ...flightQuery }}
+                  defaultName={`${flightQuery.origin} → ${flightQuery.destination} · ${flightQuery.outbound_date} – ${flightQuery.return_date}`}
+                />
+              )}
               {flight.insights?.low == null ? null : (
                 <div className="board-grid">
                   <div>
@@ -1707,6 +1741,13 @@ export default function Home() {
           <section className="board flash" key={`st-${stay.fetched_on}-${stay.cached}`}>
             <div className="board-head">
               <Tags search={stay} />
+              {stayQuery && (
+                <SaveSearchButton
+                  searchType="hotel"
+                  params={{ ...stayQuery }}
+                  defaultName={`${stayQuery.q} · ${stayQuery.check_in_date} – ${stayQuery.check_out_date}`}
+                />
+              )}
               <div className="cap mini board-capline">
                 {stay.count} stays on the “{stay.q}” board
               </div>
@@ -1747,6 +1788,13 @@ export default function Home() {
                   {symbol(pkg.currency)}{pkg.trip_budget.toLocaleString(localeOf(pkg.currency))}
                 </span>
               </div>
+              {pkgQuery && (
+                <SaveSearchButton
+                  searchType="package"
+                  params={{ ...pkgQuery }}
+                  defaultName={`${pkgQuery.origin} → ${pkgQuery.destination} · ${pkgQuery.q}`}
+                />
+              )}
               <div className="pkg-intro">
                 <div>
                   <div className="cap mini">stays in “{pkg.q}”</div>

@@ -1,6 +1,10 @@
 import type { NextConfig } from "next";
+import { config } from "dotenv";
+
+config({ path: "../.env" });
 
 const nextConfig: NextConfig = {
+  devIndicators: false,
   async rewrites() {
     // Same-origin proxy: the Flask prediction API on :6050
     return [
