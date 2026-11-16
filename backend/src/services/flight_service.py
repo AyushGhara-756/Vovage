@@ -1,4 +1,7 @@
-from ...model.Flights import load_artifacts, predict_price
+try:
+    from ...model.Flights import load_artifacts, predict_price
+except ImportError:  # service-root layout: backend/ sits on sys.path
+    from model.Flights import load_artifacts, predict_price
 
 REQUIRED = [
     "airline", "source_city", "departure_time", "stops", "arrival_time",

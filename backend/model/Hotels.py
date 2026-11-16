@@ -75,7 +75,10 @@ class HotelNetwork:
             return self._torch.expm1(out).squeeze(1).numpy()
 
 
-def load_artifacts(weights="backend/model/hotel_price.pth", scaler_path="backend/model/hotel_scaler.pkl", meta_path="backend/model/hotel_meta.json"):
+MODEL_DIR = Path(__file__).resolve().parent
+
+
+def load_artifacts(weights=MODEL_DIR / "hotel_price.pth", scaler_path=MODEL_DIR / "hotel_scaler.pkl", meta_path=MODEL_DIR / "hotel_meta.json"):
     with open(meta_path) as f:
         meta = json.load(f)
     scaler = joblib.load(scaler_path)

@@ -1,4 +1,7 @@
-from ...model.Hotels import load_artifacts, predict_adr, MONTHS
+try:
+    from ...model.Hotels import load_artifacts, predict_adr, MONTHS
+except ImportError:  # service-root layout: backend/ sits on sys.path
+    from model.Hotels import load_artifacts, predict_adr, MONTHS
 from flask import request, jsonify, Blueprint
 
 from ..services import serp_service

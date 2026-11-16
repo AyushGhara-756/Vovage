@@ -21,9 +21,10 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-# project root (backend/src/services -> up 3)
-ROOT = Path(__file__).resolve().parents[3]
-DATA_DIR = ROOT / "backend" / "data"
+# backend/src/services -> up 2 = backend/  (works both as repo layout and as
+# the Vercel service root, where backend/ contents sit at the function root)
+ROOT = Path(__file__).resolve().parents[2]
+DATA_DIR = ROOT / "data"
 
 CACHE_DIR = DATA_DIR / "serp_cache"
 IATA_FILE = DATA_DIR / "iata-airport_codes.json"
