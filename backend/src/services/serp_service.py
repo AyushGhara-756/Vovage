@@ -38,6 +38,24 @@ class SerpError(Exception):
     """Raised for anything wrong with a SerpApi round-trip."""
 
 
+_NO_RESULTS_MESSAGES = {
+    "flight": (
+        "No flights were found for that route and dates. "
+        "Try nearby airports or different dates."
+    ),
+    "hotel": (
+        "No stays were found for that destination and dates. "
+        "Try another place or different dates."
+    ),
+}
+
+
+def _no_results_message(kind):
+    return _NO_RESULTS_MESSAGES.get(
+        kind, "No results were found for that search. Try different options."
+    )
+
+
 def _api_key():
     key = os.environ.get("SERP_API") or os.environ.get("SERPAPI_KEY")
     if not key and (ROOT / ".env").exists():
@@ -103,7 +121,10 @@ def _serp_request(kind, params):
         raise SerpError("could not reach serpapi") from exc
 
     if isinstance(raw, dict) and raw.get("error"):
-        raise SerpError(str(raw["error"]))
+        message = str(raw["error"])
+        if "returned any results" in message.lower():
+            raise SerpError(_no_results_message(kind))
+        raise SerpError(message)
 
     return raw
 
@@ -180,10 +201,14 @@ def _insights(pi):
 
 def shape_flight(raw):
     """Round-trip boards: departure_flights / return_flights / selected_flights.
-    One-way boards: best_flights / other_flights. Whichever exist get shaped."""
+    One-way boards: best_flights / other_flights. Whichever exist get shaped.
+
+    SerpApi round-trip options carry only the outbound legs in ``flights`` —
+    the price is the full round-trip fare per traveller."""
+    sp = raw.get("search_parameters", {})
     insights = _insights(raw.get("price_insights"))
     return {
-        "currency": raw.get("search_parameters", {}).get("currency"),
+        "currency": sp.get("currency"),
         "insights": insights,
         "departures": [_option(o) for o in (raw.get("departure_flights") or [])],
         "returns": [_option(o) for o in (raw.get("return_flights") or [])],
@@ -191,10 +216,10 @@ def shape_flight(raw):
         "best": [_option(o) for o in (raw.get("best_flights") or [])],
         "others": [_option(o) for o in (raw.get("other_flights") or [])],
         "trip": {
-            "origin": raw.get("search_parameters", {}).get("departure_id"),
-            "destination": raw.get("search_parameters", {}).get("arrival_id"),
-            "outbound_date": raw.get("search_parameters", {}).get("outbound_date"),
-            "return_date": raw.get("search_parameters", {}).get("return_date"),
+            "origin": sp.get("departure_id"),
+            "destination": sp.get("arrival_id"),
+            "outbound_date": sp.get("outbound_date"),
+            "return_date": sp.get("return_date"),
         },
     }
 
