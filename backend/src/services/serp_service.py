@@ -204,7 +204,8 @@ def shape_flight(raw):
     One-way boards: best_flights / other_flights. Whichever exist get shaped.
 
     SerpApi round-trip options carry only the outbound legs in ``flights`` —
-    the price is the full round-trip fare per traveller."""
+    the price is the full round-trip total for every passenger in the search
+    (callers must divide by the party size for a per-traveller fare)."""
     sp = raw.get("search_parameters", {})
     insights = _insights(raw.get("price_insights"))
     return {

@@ -117,6 +117,8 @@ export type FlightLeg = {
 
 export type FlightOption = {
   price: number;
+  /** fare per traveller — attached by /api/flight/search (price is the party total) */
+  price_per_traveller?: number;
   legs: FlightLeg[];
   layovers: { duration: number; name: string; overnight: boolean }[];
   duration: number;
@@ -142,11 +144,12 @@ export type FlightSearch = {
   selected: FlightOption[];
   best: FlightOption[];
   others: FlightOption[];
+  travellers?: number;
   trip: {
     origin: string;
     destination: string;
     outbound_date: string;
-    return_date: string;
+    return_date: string | null;
   };
 };
 
@@ -188,7 +191,7 @@ export const searchLiveFlights = (p: {
   origin: string;
   destination: string;
   outbound_date: string;
-  return_date: string;
+  return_date?: string | null;
   travel_class: string;
   adults: number;
   children: number;
@@ -197,11 +200,11 @@ export const searchLiveFlights = (p: {
     origin: p.origin,
     destination: p.destination,
     outbound_date: p.outbound_date,
-    return_date: p.return_date,
     travel_class: p.travel_class,
     adults: String(p.adults),
     children: String(p.children),
   });
+  if (p.return_date) qs.set("return_date", p.return_date);
   return get<FlightSearch>(`/flight/search?${qs}`);
 };
 

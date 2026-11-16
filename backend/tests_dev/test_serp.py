@@ -35,14 +35,16 @@ def check(name, cond, extra=""):
         fails.append(name)
 
 
-def raw_flight():
+def raw_flight(return_date="2026-11-24"):
     """A minimal realistic Google Flights response."""
+    sp = {
+        "departure_id": "DEL", "arrival_id": "BOM",
+        "outbound_date": "2026-11-20", "currency": "INR",
+    }
+    if return_date:
+        sp["return_date"] = return_date
     return {
-        "search_parameters": {
-            "departure_id": "DEL", "arrival_id": "BOM",
-            "outbound_date": "2026-11-20", "return_date": "2026-11-24",
-            "currency": "INR",
-        },
+        "search_parameters": sp,
         "price_insights": {
             "lowest_price": 4120, "price_level": "low",
             "typical_price_range": [3800, 6100],
@@ -131,6 +133,28 @@ try:
     check("mock param is inert (still live path)",
           r.status_code == 200 and r.get_json()["cached"] is False and calls["n"] == 1,
           str(r.status_code))
+
+    # --- one-way: no return_date -> type=2 and no return_date in engine params
+    captured = {"url": ""}
+    def capture_urlopen(url, timeout=0):
+        captured["url"] = str(url)
+        calls["n"] += 1
+        return FakeResp(raw_flight(return_date=None))
+    serp_service.urllib.request.urlopen = capture_urlopen
+    r = client.get("/api/flight/search?origin=DEL&destination=BOM&outbound_date=2026-11-20")
+    got_ow = r.get_json()
+    check("one-way search 200", r.status_code == 200 and got_ow["cached"] is False,
+          str(r.status_code))
+    check("one-way engine params",
+          "type=2" in captured["url"] and "return_date=" not in captured["url"],
+          captured["url"])
+    check("one-way trip echo",
+          got_ow["trip"]["return_date"] is None and got_ow["trip"]["outbound_date"] == "2026-11-20",
+          str(got_ow["trip"]))
+    check("one-way per-traveller split",
+          got_ow["best"]
+          and got_ow["best"][0]["price_per_traveller"] == round(got_ow["best"][0]["price"] / 2, 2),
+          str(got_ow.get("best", [])[:1]))
 finally:
     serp_service.urllib.request.urlopen = _orig_urlopen
     shutil.rmtree(serp_service.CACHE_DIR, ignore_errors=True)
