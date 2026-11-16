@@ -9,7 +9,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import r2_score, mean_absolute_error
 
-from Hotels import BhoirNetwork, MONTHS, preprocess, predict_adr
+from Hotels import HotelNetwork, MONTHS, preprocess, predict_adr
 
 CSV_PATH = "hotel_booking.csv"
 WEIGHTS = "hotel_price.pth"
@@ -68,9 +68,8 @@ print(f"weights expect {saved_in} features | rebuilt {Xh.shape[1]} features")
 if saved_in != Xh.shape[1]:
     raise SystemExit("Feature count mismatch: this csv/prep is not what the model was trained on.")
 
-model = BhoirNetwork(saved_in)
-model.load_state_dict(state)
-model.eval()
+model = HotelNetwork(weights=WEIGHTS, in_features=saved_in,
+                     y_std=y_std, y_mean=y_mean)
 
 # ---------- defaults for fields the API caller doesn't send ----------
 ID_COLS = ['name', 'email', 'phone-number', 'credit_card']  # identity columns -> always 'other'
@@ -94,12 +93,10 @@ meta = {
     "defaults": defaults,
 }
 
-# ---------- check 1: notebook-style path ----------
-Xte = torch.tensor(np.asarray(Xh_test_s, dtype=np.float32), dtype=torch.float32)
-with torch.no_grad():
-    pred_nb = torch.expm1(model(Xte) * y_std + y_mean).squeeze(1).numpy()
+# ---------- check 1: serving wrapper (torch path) ----------
+pred_nb = predict_adr(model, scaler, meta, raw.loc[Xh_test.index].to_dict(orient="records"))
 true = yh_test.to_numpy()
-print(f"[notebook path] R2 {r2_score(true, pred_nb):.4f} | MAE {mean_absolute_error(true, pred_nb):,.2f}")
+print(f"[wrapper path]  R2 {r2_score(true, pred_nb):.4f} | MAE {mean_absolute_error(true, pred_nb):,.2f}")
 
 # ---------- check 2: the exact function Flask will use, on raw rows ----------
 raw_rows = raw.loc[Xh_test.index].to_dict(orient="records")

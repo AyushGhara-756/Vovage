@@ -5,27 +5,55 @@ from pathlib import Path
 import joblib
 import numpy as np
 import pandas as pd
-import torch
-from torch import nn
 
 MODEL_DIR = Path(__file__).resolve().parent
 
 
-class FlightNetwork(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.network = nn.Sequential(
-            nn.Linear(37, 256),
-            nn.ReLU(),
-            nn.Linear(256, 256),
-            nn.ReLU(),
-            nn.Linear(256, 1)
-            # nn.ReLU(),
-            # nn.Linear(64,1)
-        )
+class FlightNetwork:
+    """Serving wrapper: ONNX runtime when the export exists (serverless
+    friendly — onnxruntime is ~50 MB vs torch's ~500 MB), PyTorch otherwise."""
 
-    def forward(self, x):
-        return self.network(x)
+    def __init__(self, weights=MODEL_DIR / "flight_price_model_02.pth",
+                 onnx_path=MODEL_DIR / "flight_price_model_02.onnx"):
+        if onnx_path.exists():
+            import onnxruntime as ort
+            self.sess = ort.InferenceSession(
+                str(onnx_path), providers=["CPUExecutionProvider"])
+            self.torch_model = None
+        else:
+            from torch import nn
+            import torch
+
+            class _Net(nn.Module):
+                def __init__(self):
+                    super().__init__()
+                    self.network = nn.Sequential(
+                        nn.Linear(37, 256),
+                        nn.ReLU(),
+                        nn.Linear(256, 256),
+                        nn.ReLU(),
+                        nn.Linear(256, 1),
+                    )
+
+                def forward(self, x):
+                    return self.network(x)
+
+            net = _Net()
+            net.load_state_dict(torch.load(weights, map_location="cpu"))
+            net.eval()
+            self.torch_model = net
+            self.sess = None
+
+    def predict(self, features):
+        """features: 2-D float array of scaled feature rows -> 1-D prices."""
+        if self.sess is not None:
+            return self.sess.run(
+                None, {"features": features.astype(np.float32)})[0].squeeze(1)
+        import torch
+        with torch.no_grad():
+            return self.torch_model(
+                torch.tensor(features, dtype=torch.float32)
+            ).squeeze(1).numpy()
 
 
 def load_artifacts(weights=MODEL_DIR / "flight_price_model_02.pth",
@@ -34,10 +62,7 @@ def load_artifacts(weights=MODEL_DIR / "flight_price_model_02.pth",
     with open(meta_path) as f:
         meta = json.load(f)
     scaler = joblib.load(scaler_path)
-
-    model = FlightNetwork()
-    model.load_state_dict(torch.load(weights, map_location="cpu"))
-    model.eval()
+    model = FlightNetwork(weights=weights)
     return model, scaler, meta
 
 
@@ -79,7 +104,5 @@ def preprocess(rows, meta, scaler):
 
 
 def predict_price(model, scaler, meta, rows):
-    x = torch.tensor(preprocess(rows, meta, scaler), dtype=torch.float32)
-    with torch.no_grad():
-        price = model(x).squeeze(1).numpy()
-    return price
+    x = preprocess(rows, meta, scaler)
+    return model.predict(x)
