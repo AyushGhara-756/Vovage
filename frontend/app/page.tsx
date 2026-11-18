@@ -469,9 +469,9 @@ const TICKER: string[][] = [
   ["Delhi", "Mumbai", "4,222", "Economy · 30 days out"],
   ["Bangalore", "Kolkata", "8,131", "Business cabin"],
   ["Chennai", "Hyderabad", "1,758", "Non-stop"],
-  ["Delhi", "Mumbai", "49,987", "Business · tomorrow"],
+  // ["Delhi", "Mumbai", "49,987", "Business · tomorrow"],
   ["Kolkata", "Bangalore", "6,060", "Direct"],
-  ["Hyderabad", "Delhi", "12,482", "One stop"],
+  // ["Hyderabad", "Delhi", "12,482", "One stop"],
 ];
 
 /* ---------------------------------------------------------------- flight board row */
