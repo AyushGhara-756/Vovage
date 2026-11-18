@@ -1,6 +1,6 @@
-# Vovage
+# Voyage
 
-Vovage is a travel planning web app for searching **flights**, **stays**, and
+Voyage is a travel planning web app for searching **flights**, **stays**, and
 **curated trip packages** — with built-in ML models that predict fares and
 nightly rates before you book.
 
@@ -23,7 +23,7 @@ from a bundled local IATA dataset and never touches the network.
 | Proxy    | Next.js rewrites `/api/*` → Flask on `127.0.0.1:6050`              |
 
 ```
-Vovage/
+Voyage/
 ├── backend/
 │   ├── __main__.py          # Flask app entrypoint (port 6050)
 │   ├── src/
@@ -111,6 +111,10 @@ Supabase Auth URL configuration (required for real email links):
 Database prerequisites:
 
 - The `handle_new_user()` trigger creates the profile, preferences and consent rows.
+  Consent rows are trigger-only by default: `authenticated` has no `INSERT` grant
+  on `public.user_consents`, so direct client inserts are denied even though an
+  owner-insert policy exists. Grant `INSERT` only if direct client consent writes
+  are required.
 - The `authenticated` role must be allowed to update only the profile columns users
   may edit. If profile saves return `permission denied for table profiles`, run:
 
@@ -128,9 +132,17 @@ GRANT UPDATE (
   Storage RLS must allow each user to write only inside their own `<user_id>/` folder:
 
 ```sql
+drop policy if exists "avatars: owner select" on storage.objects;
 drop policy if exists "avatars: owner insert" on storage.objects;
 drop policy if exists "avatars: owner update" on storage.objects;
 drop policy if exists "avatars: owner delete" on storage.objects;
+
+create policy "avatars: owner select"
+on storage.objects for select to authenticated
+using (
+  bucket_id = 'avatars'
+  and (storage.foldername(name))[1] = auth.uid()::text
+);
 
 create policy "avatars: owner insert"
 on storage.objects for insert to authenticated
@@ -158,8 +170,11 @@ using (
 );
 ```
 
-  The bucket is public, so avatars can be served without a select policy; the
-  policies above only govern writes.
+  The bucket is public, so direct public-URL downloads work without a select
+  policy, but the Storage API still needs an owner `SELECT` policy for listing,
+  signed URLs, overwrite/upsert and delete. Without it, owner delete/upsert
+  returns `Access denied` even though the insert/update/delete policies exist.
+  The select policy above only exposes each user's own folder.
 
 Run the backend and frontend, then exercise the full auth flow from the repo root:
 
@@ -175,6 +190,33 @@ The integration script creates and deletes real test users. It covers the trigge
 JWT verification, profile/preferences, saved searches, history, RLS isolation,
 CORS, protected-route redirects and real signup/recovery callbacks using
 admin-generated token hashes. It cannot click a link in a real inbox.
+
+## Security & production
+
+- **Rotate provider keys.** `SERP_API` and `AVAITION_API` were committed in an
+  old `env` file (now purged from history and ignored). Treat them as compromised:
+  issue new keys in the SerpApi / Aviationstack dashboards and update `.env`.
+  Never commit `.env` or any file named `env`.
+- **Database rules.** Run `docs/supabase-security.sql` in the Supabase SQL editor
+  to enforce owner-only RLS on the account tables plus the avatar storage folder.
+- **Production runtime.** Set `APP_ENV=production`, `FLASK_DEBUG=0`, a
+  comma-separated `FRONTEND_ORIGIN` of `https://` origins, and `TRUST_PROXY=1`
+  only behind a trusted reverse proxy. Install `requirements.txt` and serve Flask
+  with waitress instead of the dev server:
+
+  ```bash
+  python -m backend.serve
+  ```
+
+  Terminate TLS at the proxy and keep `NEXT_PUBLIC_SUPABASE_URL` on `https`.
+- **Abuse controls.** All `/api/*` routes are rate-limited per IP and every
+  cache-miss SerpApi search consumes `SERP_DAILY_CALL_LIMIT` (default 200/day).
+  Tune the limits in `.env.example`; `0` disables a limit.
+- **Browser hardening.** Next.js sets CSP, HSTS (production), nosniff,
+  frame-denial and referrer/permissions policies; Supabase auth cookies are
+  `SameSite=Lax` and `Secure` in production. The CSP keeps `'unsafe-inline'`
+  for Next's bootstrap scripts; move to nonce-based CSP when the app no longer
+  needs inline scripts.
 
 ## API Reference
 

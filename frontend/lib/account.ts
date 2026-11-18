@@ -1,3 +1,4 @@
+import { validateAvatarFile } from "@/lib/avatar";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
 export type Profile = {
@@ -56,7 +57,7 @@ async function authedFetch<T>(
   allowRefresh = true,
 ): Promise<T> {
   const supabase = getSupabaseBrowserClient();
-  let { data } = await supabase.auth.getSession();
+  const { data } = await supabase.auth.getSession();
   let token = data.session?.access_token;
   if (!token && allowRefresh) {
     const refreshed = await supabase.auth.refreshSession();
@@ -64,10 +65,12 @@ async function authedFetch<T>(
   }
   if (!token) throw new Error("You're signed out — sign in and try again.");
 
+  const isFormData =
+    typeof FormData !== "undefined" && init.body instanceof FormData;
   const res = await fetch(`/api/account${path}`, {
     ...init,
     headers: {
-      "Content-Type": "application/json",
+      ...(isFormData ? {} : { "Content-Type": "application/json" }),
       Authorization: `Bearer ${token}`,
       ...(init.headers ?? {}),
     },
@@ -104,11 +107,6 @@ export const updateAccount = (updates: Partial<{
   authedFetch<AccountPayload>("/me", {
     method: "PATCH",
     body: JSON.stringify(updates),
-  });
-
-export const ensureAvatarBucket = () =>
-  authedFetch<{ bucket: string; created: boolean }>("/avatar/bucket", {
-    method: "POST",
   });
 
 export const listSaves = () => authedFetch<{ saves: SavedSearch[] }>("/saves");
@@ -166,22 +164,9 @@ export const deleteHistory = (id: string) =>
 export const clearHistory = () =>
   authedFetch<{ cleared: boolean }>("/history", { method: "DELETE" });
 
-export async function uploadAvatar(file: File): Promise<string> {
-  await ensureAvatarBucket();
-  const supabase = getSupabaseBrowserClient();
-  const { data } = await supabase.auth.getSession();
-  const user = data.session?.user;
-  if (!user) throw new Error("You're signed out — sign in and try again.");
-  if (file.size > 2 * 1024 * 1024) throw new Error("Avatar must be under 2 MB.");
-  if (!file.type.startsWith("image/")) throw new Error("Choose an image file.");
-
-  const ext = (file.name.split(".").pop() || "png").toLowerCase();
-  const path = `${user.id}/${Date.now()}.${ext}`;
-  const { error } = await supabase.storage
-    .from("avatars")
-    .upload(path, file, { upsert: false, contentType: file.type });
-  if (error) throw new Error(error.message);
-
-  const { data: publicUrl } = supabase.storage.from("avatars").getPublicUrl(path);
-  return publicUrl.publicUrl;
+export function uploadAvatar(file: File): Promise<AccountPayload> {
+  validateAvatarFile(file);
+  const body = new FormData();
+  body.append("file", file);
+  return authedFetch<AccountPayload>("/avatar", { method: "POST", body });
 }

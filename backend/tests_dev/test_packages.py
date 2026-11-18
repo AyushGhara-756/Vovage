@@ -23,7 +23,7 @@ fails = []
 
 # --- redirect the cache to a scratch dir so the real one is never touched
 _cache_backup = serp_service.CACHE_DIR
-serp_service.CACHE_DIR = Path(tempfile.mkdtemp(prefix="vovage-test-cache-"))
+serp_service.CACHE_DIR = Path(tempfile.mkdtemp(prefix="Voyage-test-cache-"))
 
 _orig_urlopen = serp_service.urllib.request.urlopen
 

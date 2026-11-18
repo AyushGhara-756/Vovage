@@ -19,9 +19,9 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Vovage — Where to next?",
+  title: "Voyage — Where to next?",
   description:
-    "The world, within reach. Begin your journey with Vovage.",
+    "The world, within reach. Begin your journey with Voyage.",
 };
 
 export const viewport: Viewport = {
@@ -35,7 +35,7 @@ export const viewport: Viewport = {
 const themeBoot = `
 (function () {
   var t;
-  try { t = localStorage.getItem("vovage-theme"); } catch (e) {}
+  try { t = localStorage.getItem("Voyage-theme"); } catch (e) {}
   if (t !== "light" && t !== "dark") t = "dark";
   document.documentElement.dataset.theme = t;
 })();

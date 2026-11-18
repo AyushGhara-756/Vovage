@@ -102,7 +102,7 @@ export function Chrome() {
     const next = theme === "dark" ? "light" : "dark";
     document.documentElement.dataset.theme = next;
     try {
-      localStorage.setItem("vovage-theme", next);
+      localStorage.setItem("Voyage-theme", next);
     } catch {
       /* private mode */
     }
@@ -122,11 +122,10 @@ export function Chrome() {
 
   return (
     <header className={`chrome${scrolled ? " scrolled" : ""}`}>
-      <Link href="/" className="wordmark" aria-label="Vovage home">
-        VOVAGE<i>.</i>
+      <Link href="/" className="wordmark" aria-label="Voyage home">
+        Voyage<i>.</i>
       </Link>
       <nav className="chrome-right">
-        <span className="chrome-note mini">Estimates, not quotes</span>
         {session?.user ? (
           <div className="acct-wrap" ref={menuRef}>
             <button
@@ -151,7 +150,7 @@ export function Chrome() {
                 </Link>
                 {confirmingOut ? (
                   <div className="acct-confirm">
-                    <p>Sign out of Vovage?</p>
+                    <p>Sign out of Voyage?</p>
                     <div className="acct-confirm-actions">
                       <button
                         type="button"
@@ -187,7 +186,7 @@ export function Chrome() {
           <Link
             href="/signin"
             className="signin-btn"
-            aria-label="Sign in to Vovage"
+            aria-label="Sign in to Voyage"
           >
             Sign in
           </Link>

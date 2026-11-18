@@ -56,3 +56,4 @@ PyJWT==2.15.1
 cryptography==50.0.2
 python-dotenv==1.2.4
 flask-cors==6.0.5
+waitress==3.0.2

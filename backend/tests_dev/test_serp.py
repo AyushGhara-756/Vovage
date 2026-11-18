@@ -19,7 +19,7 @@ fails = []
 
 # --- redirect the cache to a scratch dir so the real one is never touched
 _cache_backup = serp_service.CACHE_DIR
-serp_service.CACHE_DIR = Path(tempfile.mkdtemp(prefix="vovage-test-cache-"))
+serp_service.CACHE_DIR = Path(tempfile.mkdtemp(prefix="Voyage-test-cache-"))
 
 # --- hard network guard: anything reaching here means the code tried the wire
 def _no_network(url, timeout=0, **kw):
