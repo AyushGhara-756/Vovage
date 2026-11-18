@@ -92,16 +92,17 @@ def auth(token):
 PNG_1X1 = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZQmcAAAAASUVORK5CYII="
 )
+JPEG_1X1 = b"\xff\xd8\xff\xe0" + b"\x00" * 64
 
 
-def storage_upload(token, path, data):
+def storage_upload(token, path, data, upsert=False):
     return httpx.post(
         f"{URL}/storage/v1/object/avatars/{path}",
         headers={
             "apikey": PUB,
             "Authorization": f"Bearer {token}",
             "Content-Type": "image/png",
-            "x-upsert": "true",
+            "x-upsert": "true" if upsert else "false",
         },
         content=data,
         timeout=20,
@@ -117,15 +118,38 @@ def storage_delete(token, path):
     )
 
 
+def storage_admin_upload(path, data, content_type="image/png"):
+    return httpx.post(
+        f"{URL}/storage/v1/object/avatars/{path}",
+        headers={
+            "apikey": SECRET,
+            "Authorization": f"Bearer {SECRET}",
+            "Content-Type": content_type,
+            "x-upsert": "false",
+        },
+        content=data,
+        timeout=20,
+    )
+
+
+def avatar_upload(client, token, filename, data, content_type):
+    return client.post(
+        "/api/account/avatar",
+        headers=auth(token),
+        data={"file": (filename, data, content_type)},
+        content_type="multipart/form-data",
+    )
+
+
 def make_user(admin, public, tag, confirmed=True):
-    email = f"vovage.test.{tag}.{int(time.time())}.{uuid.uuid4().hex[:6]}@example.com"
-    password = "Vovage!Test" + uuid.uuid4().hex[:10]
+    email = f"Voyage.test.{tag}.{int(time.time())}.{uuid.uuid4().hex[:6]}@example.com"
+    password = "Voyage!Test" + uuid.uuid4().hex[:10]
     user = admin.auth.admin.create_user({
         "email": email,
         "password": password,
         "email_confirm": confirmed,
         "user_metadata": {
-            "full_name": f"Vovage Test {tag}",
+            "full_name": f"Voyage Test {tag}",
             "phone_number": None,
             "home_city": "Test City",
             "home_airport": "Test Airport",
@@ -146,7 +170,7 @@ def make_user(admin, public, tag, confirmed=True):
 def run_backend_checks(admin, public):
     client = app.test_client()
     user1 = user2 = None
-    storage_path = None
+    created_avatar_paths = []
     try:
         user1, email1, _pw1, token1 = make_user(admin, public, "a")
         user2, email2, _pw2, token2 = make_user(admin, public, "b")
@@ -159,7 +183,7 @@ def run_backend_checks(admin, public):
         check("trigger created preferences", len(prefs) == 1)
         check("trigger recorded consents", len(consents) >= 2)
         if profile:
-            check("profile name from metadata", profile[0].get("full_name") == "Vovage Test a")
+            check("profile name from metadata", profile[0].get("full_name") == "Voyage Test a")
         if consents:
             types = {c.get("consent_type") for c in consents}
             check("consent types terms/privacy", {"terms", "privacy_policy"}.issubset(types), str(types))
@@ -185,7 +209,7 @@ def run_backend_checks(admin, public):
         check("GET /me user id matches token", data.get("user_id") == user1.id)
 
         updates = {
-            "full_name": "Vovage Renamed",
+            "full_name": "Voyage Renamed",
             "phone_number": "+91 98765 43210",
             "home_city": "Mumbai",
             "home_airport": "BOM",
@@ -200,7 +224,7 @@ def run_backend_checks(admin, public):
         data = body(res)
         check("PATCH /me valid is 200", res.status_code == 200, str(res.status_code) + " " + json.dumps(data)[:300])
         if res.status_code == 200:
-            check("PATCH /me persisted profile name", data["profile"]["full_name"] == "Vovage Renamed")
+            check("PATCH /me persisted profile name", data["profile"]["full_name"] == "Voyage Renamed")
             check("PATCH /me persisted currency", data["profile"]["preferred_currency"] == "USD")
             check("PATCH /me persisted rating", data["preferences"]["preferred_hotel_rating"] == 4)
             check("PATCH /me persisted notifications", data["preferences"]["notification_enabled"] is False)
@@ -276,56 +300,151 @@ def run_backend_checks(admin, public):
         res = client.post("/api/account/avatar/bucket", headers=auth(token1))
         check("POST /avatar/bucket idempotent", res.status_code == 200 and body(res).get("created") is False, str(res.status_code))
 
-        storage_path = f"{user1.id}/integration-{uuid.uuid4().hex[:8]}.png"
-        uploaded = storage_upload(token1, storage_path, PNG_1X1)
-        storage_rls_missing = (
-            uploaded.status_code in (400, 403)
-            and "row-level security" in uploaded.text.lower()
+        res = avatar_upload(client, token1, "first.png", PNG_1X1, "image/png")
+        data = body(res)
+        first_url = (data.get("profile") or {}).get("avatar_url") or ""
+        first_path = first_url.split("/avatars/", 1)[-1] if "/avatars/" in first_url else ""
+        if first_path:
+            created_avatar_paths.append(first_path)
+        check(
+            "POST /avatar valid PNG is 200",
+            res.status_code == 200 and bool(first_path),
+            str(res.status_code) + " " + json.dumps(data)[:300],
         )
-        if storage_rls_missing:
-            SKIP.append("avatar upload (storage RLS policies not applied)")
-            print(
-                "SKIP  avatar checks: storage RLS policies are not applied. Run the "
-                "storage policy SQL in README 'Authentication & account data' and rerun."
-            )
-        else:
-            check(
-                "avatar upload works in own folder",
-                uploaded.status_code in (200, 201),
-                f"{uploaded.status_code} {uploaded.text[:200]}",
-            )
-        if uploaded.status_code in (200, 201):
+        check(
+            "avatar URL is scoped to the caller",
+            first_path.startswith(f"{user1.id}/"),
+            first_path,
+        )
+        if first_path:
             public_read = httpx.get(
-                f"{URL}/storage/v1/object/public/avatars/{storage_path}",
+                f"{URL}/storage/v1/object/public/avatars/{first_path}",
                 timeout=20,
             )
             check(
-                "avatar public URL serves the uploaded image",
+                "avatar public URL serves the validated image",
                 public_read.status_code == 200 and public_read.content == PNG_1X1,
                 str(public_read.status_code),
             )
-            other_upload = storage_upload(token2, storage_path, PNG_1X1)
-            check(
-                "other user cannot overwrite avatar",
-                other_upload.status_code not in (200, 201),
-                f"{other_upload.status_code} {other_upload.text[:200]}",
+
+        res = avatar_upload(client, token2, "second.jpg", JPEG_1X1, "image/jpeg")
+        data = body(res)
+        second_url = (data.get("profile") or {}).get("avatar_url") or ""
+        second_path = second_url.split("/avatars/", 1)[-1] if "/avatars/" in second_url else ""
+        if second_path:
+            created_avatar_paths.append(second_path)
+        check(
+            "POST /avatar valid JPEG is 200",
+            res.status_code == 200 and bool(second_path),
+            str(res.status_code) + " " + json.dumps(data)[:300],
+        )
+        if first_path:
+            old_public = httpx.get(
+                f"{URL}/storage/v1/object/public/avatars/{first_path}",
+                timeout=20,
             )
-            other_delete = storage_delete(token2, storage_path)
             check(
-                "other user cannot delete avatar",
-                other_delete.status_code not in (200, 204),
-                f"{other_delete.status_code} {other_delete.text[:200]}",
+                "other user cannot remove the owner's avatar",
+                old_public.status_code == 200,
+                str(old_public.status_code),
             )
-            own_delete = storage_delete(token1, storage_path)
+
+        res = avatar_upload(client, token1, "second.jpg", JPEG_1X1, "image/jpeg")
+        data = body(res)
+        replacement_url = (data.get("profile") or {}).get("avatar_url") or ""
+        replacement_path = (
+            replacement_url.split("/avatars/", 1)[-1]
+            if "/avatars/" in replacement_url
+            else ""
+        )
+        if replacement_path:
+            created_avatar_paths.append(replacement_path)
+        check(
+            "POST /avatar replacement is 200",
+            res.status_code == 200 and bool(replacement_path),
+            str(res.status_code) + " " + json.dumps(data)[:300],
+        )
+        check(
+            "new avatar URL differs from previous",
+            replacement_url and replacement_url != first_url,
+            replacement_url,
+        )
+        if first_path:
+            old_public = httpx.get(
+                f"{URL}/storage/v1/object/public/avatars/{first_path}",
+                timeout=20,
+            )
             check(
-                "owner can delete avatar",
-                own_delete.status_code in (200, 204),
-                f"{own_delete.status_code} {own_delete.text[:200]}",
+                "previous avatar is deleted after profile success",
+                old_public.status_code == 404,
+                str(old_public.status_code),
             )
+        if replacement_path:
+            new_public = httpx.get(
+                f"{URL}/storage/v1/object/public/avatars/{replacement_path}",
+                timeout=20,
+            )
+            check(
+                "replacement avatar is publicly readable",
+                new_public.status_code == 200
+                and new_public.content == JPEG_1X1,
+                str(new_public.status_code),
+            )
+
+        for label, name, mime, payload in (
+            ("wrong extension", "evil.txt", "text/plain", b"not an image"),
+            ("wrong MIME", "evil.png", "image/jpeg", PNG_1X1),
+            ("fake image", "fake.png", "image/png", b"<script>alert(1)</script>"),
+            ("SVG", "evil.svg", "image/svg+xml", b"<svg/>"),
+        ):
+            res = avatar_upload(client, token1, name, payload, mime)
+            check(
+                f"POST /avatar rejects {label}",
+                res.status_code == 400,
+                str(res.status_code) + " " + json.dumps(body(res))[:200],
+            )
+
+        oversize = b"\x89PNG\r\n\x1a\n" + b"0" * (2 * 1024 * 1024 + 1)
+        res = avatar_upload(client, token1, "huge.png", oversize, "image/png")
+        check(
+            "POST /avatar rejects >2MB",
+            res.status_code in (400, 413),
+            str(res.status_code),
+        )
+
+        other_path = f"{user2.id}/owned-by-user2-{uuid.uuid4().hex[:8]}.png"
+        created_avatar_paths.append(other_path)
+        uploaded = storage_admin_upload(other_path, PNG_1X1)
+        check(
+            "service role can seed another user's object",
+            uploaded.status_code in (200, 201),
+            f"{uploaded.status_code} {uploaded.text[:200]}",
+        )
+        admin.table("profiles").update({
+            "avatar_url": f"{URL}/storage/v1/object/public/avatars/{other_path}"
+        }).eq("id", user1.id).execute()
+        res = avatar_upload(client, token1, "third.png", PNG_1X1, "image/png")
+        third_url = (body(res).get("profile") or {}).get("avatar_url") or ""
+        third_path = (
+            third_url.split("/avatars/", 1)[-1]
+            if "/avatars/" in third_url
+            else ""
+        )
+        if third_path:
+            created_avatar_paths.append(third_path)
+        other_public = httpx.get(
+            f"{URL}/storage/v1/object/public/avatars/{other_path}",
+            timeout=20,
+        )
+        check(
+            "cleanup skips objects outside the caller's folder",
+            res.status_code == 200 and other_public.status_code == 200,
+            f"{res.status_code} other={other_public.status_code}",
+        )
 
         res = client.get("/api/account/me", headers=auth(token2))
         data = body(res)
-        check("second user sees own profile", res.status_code == 200 and data.get("profile", {}).get("full_name") == "Vovage Test b")
+        check("second user sees own profile", res.status_code == 200 and data.get("profile", {}).get("full_name") == "Voyage Test b")
 
         res = client.patch(
             "/api/account/me",
@@ -341,7 +460,7 @@ def run_backend_checks(admin, public):
         check("PATCH /me ignores supplied ids/email/role", res.status_code == 200, str(res.status_code))
         p1 = admin.table("profiles").select("full_name").eq("id", user1.id).single().execute().data
         p2 = admin.table("profiles").select("full_name").eq("id", user2.id).single().execute().data
-        check("profile spoof did not change other user", p1.get("full_name") == "Vovage Renamed", str(p1))
+        check("profile spoof did not change other user", p1.get("full_name") == "Voyage Renamed", str(p1))
         check("profile spoof changed own user only", p2.get("full_name") == "Spoof Attempt", str(p2))
         u2 = admin.auth.admin.get_user_by_id(user2.id).user
         check("email cannot be changed through profile API", u2.email == email2)
@@ -410,11 +529,11 @@ def run_backend_checks(admin, public):
         )
         check("CORS blocks other origin", pre.headers.get("Access-Control-Allow-Origin") is None, str(pre.headers.get("Access-Control-Allow-Origin")))
     finally:
-        if storage_path:
+        for path in set(created_avatar_paths):
             try:
                 httpx.request(
                     "DELETE",
-                    f"{URL}/storage/v1/object/avatars/{storage_path}",
+                    f"{URL}/storage/v1/object/avatars/{path}",
                     headers={
                         "apikey": SECRET,
                         "Authorization": f"Bearer {SECRET}",
@@ -437,7 +556,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 def fetch(opener, url):
-    request = urllib.request.Request(url, headers={"User-Agent": "vovage-auth-test"})
+    request = urllib.request.Request(url, headers={"User-Agent": "Voyage-auth-test"})
     try:
         with opener.open(request, timeout=60) as res:
             return res.status, res.headers, res.read(4000)

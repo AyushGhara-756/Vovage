@@ -1,8 +1,8 @@
-﻿# Vovage Supabase Auth + Backend Integration Plan
+# Voyage Supabase Auth + Backend Integration Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
-**Goal:** Finish and harden the existing Vovage Supabase auth, profile, saved-search/history, and Flask integration so the full flow works end to end under RLS.
+**Goal:** Finish and harden the existing Voyage Supabase auth, profile, saved-search/history, and Flask integration so the full flow works end to end under RLS.
 
 **Architecture:** Next.js 16 App Router with `@supabase/ssr` browser/server clients and Next 16 `proxy.ts` session refresh + route protection. Flask verifies Supabase asymmetric JWTs via JWKS and performs all user data access with the caller's own access token through PostgREST, leaving RLS in force.
 
@@ -17,7 +17,7 @@
 - Never trust a user id from a request body; only the verified JWT `sub`.
 - Keep RLS enabled; use the user JWT for normal data access.
 - Do not create tables or duplicate profile insertion; the trigger owns creation.
-- Preserve the existing Vovage visual design and unrelated functionality.
+- Preserve the existing Voyage visual design and unrelated functionality.
 - Do not mark email verified manually or disable confirmation.
 - `.env` stays untracked; `.env.example` contains placeholders only.
 
@@ -46,7 +46,7 @@
 - [x] Fix implicit-any auth callbacks in `chrome.tsx` with `Session | null` types.
 - [x] Make `getSupabaseServerClient` `async` (it awaits `cookies()`).
 - [x] Fix `forgot-password` missing `useRouter` import (remove unused router).
-- [x] Change Flask `ROOT` from `parents[3]` to `parents[2]` so `D:\Projects\Vovage\.env` is found.
+- [x] Change Flask `ROOT` from `parents[3]` to `parents[2]` so `D:\Projects\Voyage\.env` is found.
 - [x] Add `.env*` + `!.env.example` to root `.gitignore`.
 - [x] Run `npm run build` and `python -m compileall backend`; expect pass.
 

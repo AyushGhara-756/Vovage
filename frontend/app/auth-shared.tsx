@@ -28,18 +28,14 @@ export function AuthShell({
     <main className="auth">
       <div className="auth-form-pane">
         <header className="auth-head">
-          <Link href="/" className="wordmark" aria-label="Vovage home">
-            VOVAGE<i>.</i>
+          <Link href="/" className="wordmark" aria-label="Voyage home">
+            Voyage<i>.</i>
           </Link>
           <Link href="/" className="auth-back">
             ← Back to search
           </Link>
         </header>
         {children}
-        <p className="auth-legal">
-          © {new Date().getFullYear()} Vovage · Prices are estimates, not
-          offers.
-        </p>
       </div>
       <aside className="auth-visual" style={photo ? ({ "--auth-photo": `url(${photo})` } as React.CSSProperties) : undefined} aria-hidden>
         <div className="auth-quote">

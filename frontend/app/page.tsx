@@ -35,9 +35,29 @@ type FlightQueryParams = Parameters<typeof searchLiveFlights>[0];
 type StayQueryParams = Parameters<typeof searchLiveStays>[0];
 type PackageQueryParams = Parameters<typeof searchPackages>[0];
 
-/* ---------------------------------------------------------------- primitives */
+function safeExternalHref(value: string | null | undefined): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:"
+      ? url.toString()
+      : null;
+  } catch {
+    return null;
+  }
+}
 
-const CITIES = ["Delhi", "Mumbai", "Bangalore", "Kolkata", "Chennai", "Hyderabad"];
+/* ---------------------------------------------------------------- primitives */
+const STAY_DESTINATIONS = [
+  "Goa", "Bali", "Shimla", "Manali", "Jaipur", "Agra", "Udaipur", "Jaisalmer",
+  "Kerala", "Munnar", "Ooty", "Coorg", "Lonavala", "Mahabaleshwar", "Mount Abu",
+  "Nainital", "Mussoorie", "Darjeeling", "Gangtok", "Shillong", "Cherrapunji",
+  "Pondicherry", "Hampi", "Mysore", "Alleppey", "Kodaikanal", "Wayanad",
+  "Jodhpur", "Pushkar", "Rishikesh", "Haridwar", "Varanasi", "Amritsar",
+  "Leh", "Ladakh", "Spiti", "Auli", "Chopta", "Kasauli", "Dalhousie",
+  "Dharamshala", "McLeodganj", "Kullu", "Kasauli", "Panchgani", "Alibaug",
+  "Gokarna", "Pondicherry", "Kovalam", "Varkala", "Thekkady", "Wayanad",
+];
 
 function Field({
   cap,
@@ -82,6 +102,131 @@ function Select({
         </option>
       ))}
     </select>
+  );
+}
+
+/* ---------------------------------------------------------------- custom select (dark-themed dropdown) */
+
+function ListSelect({
+  cap,
+  className,
+  value,
+  onChange,
+  options,
+}: {
+  cap: string;
+  className?: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: string[];
+}) {
+  const [text, setText] = useState(value);
+  const [open, setOpen] = useState(false);
+  const [cursor, setCursor] = useState(-1);
+  const listId = `ls-${cap.toLowerCase().replace(/\s+/g, "-")}`;
+
+  useEffect(() => {
+    setText(value);
+  }, [value]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const pick = (o: string) => {
+    setText(o);
+    setOpen(false);
+    setCursor(-1);
+    onChange(o);
+  };
+
+  const close = () => {
+    setOpen(false);
+    setCursor(-1);
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (open && options.length > 0) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        setCursor((c) => {
+          const next =
+            e.key === "ArrowDown"
+              ? c + 1
+              : c <= 0
+                ? options.length - 1
+                : c - 1;
+          return (next + options.length) % options.length;
+        });
+        return;
+      }
+      if (e.key === "Enter") {
+        e.preventDefault();
+        if (cursor >= 0 && cursor < options.length) {
+          pick(options[cursor]);
+          return;
+        }
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        close();
+        return;
+      }
+    }
+    if (e.key === "Enter") {
+      e.preventDefault();
+      close();
+    }
+  };
+
+  return (
+    <Field cap={cap} className={className ?? "ac"}>
+      <input
+        className="control display"
+        id={`in-${listId}`}
+        value={text}
+        placeholder={options[0] ?? ""}
+        autoCorrect="off"
+        spellCheck={false}
+        role="combobox"
+        aria-expanded={open}
+        aria-controls={open ? listId : undefined}
+        aria-activedescendant={
+          open && cursor >= 0 ? `${listId}-${cursor}` : undefined
+        }
+        aria-autocomplete="list"
+        autoComplete="off"
+        onChange={(e) => {
+          const v = e.target.value;
+          setText(v);
+          onChange(v);
+        }}
+        onFocus={() => options.length > 0 && setOpen(true)}
+        onBlur={close}
+        onKeyDown={onKeyDown}
+      />
+      {open && options.length > 0 && (
+        <div
+          className="ac-list display"
+          id={listId}
+          role="listbox"
+          aria-labelledby={`in-${listId}`}
+        >
+          {options.map((o, i) => (
+            <div
+              key={o}
+              id={`${listId}-${i}`}
+              className={`ac-item${i === cursor ? " active" : ""}`}
+              role="option"
+              aria-selected={i === cursor}
+              tabIndex={-1}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                pick(o);
+              }}
+            >
+              <span className="ac-name">{prettify(o)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </Field>
   );
 }
 
@@ -320,7 +465,7 @@ function AirportField({
   };
 
   return (
-    <Field cap={cap} className="select span5 ac" aside={value?.city}>
+    <Field cap={cap} className="span5 ac" aside={value?.city}>
       <input
         className="control display"
         id={`in-${listId}`}
@@ -385,6 +530,146 @@ function AirportField({
   );
 }
 
+/* ---------------------------------------------------------------- stay field (live autocomplete) */
+
+function StayField({
+  cap,
+  value,
+  onPick,
+}: {
+  cap: string;
+  value: string;
+  onPick: (a: string) => void;
+}) {
+  const [text, setText] = useState(value);
+  const [hits, setHits] = useState<string[]>([]);
+  const [open, setOpen] = useState(false);
+  const [cursor, setCursor] = useState(-1);
+  const listId = `ac-${cap.toLowerCase().replace(/\s+/g, "-")}`;
+
+  useEffect(() => {
+    setText(value);
+  }, [value]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const q = text.trim();
+    if (!q) {
+      setHits([]);
+      setOpen(false);
+      return;
+    }
+    const ql = q.toLowerCase();
+    const filtered = STAY_DESTINATIONS.filter((d) =>
+      d.toLowerCase().includes(ql),
+    );
+    setHits(filtered);
+    setCursor(-1);
+    setOpen(true);
+  }, [text]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const pick = (d: string) => {
+    setText(d);
+    setHits([]);
+    setCursor(-1);
+    setOpen(false);
+    onPick(d);
+  };
+
+  const close = () => {
+    setOpen(false);
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (open && hits.length > 0) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        setCursor((c) => {
+          const next =
+            e.key === "ArrowDown"
+              ? c + 1
+              : c <= 0
+                ? hits.length - 1
+                : c - 1;
+          return (next + hits.length) % hits.length;
+        });
+        return;
+      }
+      if (e.key === "Enter") {
+        e.preventDefault();
+        if (cursor >= 0 && cursor < hits.length) {
+          pick(hits[cursor]);
+          return;
+        }
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setOpen(false);
+        setCursor(-1);
+        return;
+      }
+    }
+    if (e.key === "Enter") {
+      e.preventDefault();
+      close();
+    }
+  };
+
+  return (
+    <Field cap={cap} className="select span6 ac" aside={value ? "hotels" : undefined}>
+      <input
+        className="control display"
+        id={`in-${listId}`}
+        value={text}
+        placeholder="Goa, Bali, Shimla —"
+        autoCapitalize="words"
+        autoCorrect="off"
+        spellCheck={false}
+        role="combobox"
+        aria-expanded={open}
+        aria-controls={open ? listId : undefined}
+        aria-activedescendant={
+          open && cursor >= 0 ? `${listId}-${cursor}` : undefined
+        }
+        aria-autocomplete="list"
+        autoComplete="off"
+        onChange={(e) => {
+          const v = e.target.value;
+          setText(v);
+          onPick(v);
+        }}
+        onFocus={() => hits.length > 0 && setOpen(true)}
+        onBlur={close}
+        onKeyDown={onKeyDown}
+      />
+      {open && hits.length > 0 && (
+        <div
+          className="ac-list display"
+          id={listId}
+          role="listbox"
+          aria-labelledby={`in-${listId}`}
+        >
+          {hits.map((d, i) => (
+            <div
+              key={d}
+              id={`${listId}-${i}`}
+              className={`ac-item${i === cursor ? " active" : ""}`}
+              role="option"
+              aria-selected={i === cursor}
+              tabIndex={-1}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                pick(d);
+              }}
+            >
+              <span className="ac-name">{d}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </Field>
+  );
+}
+
 /* ---------------------------------------------------------------- misc formatters */
 
 const CUR_SYMBOL: Record<string, string> = {
@@ -442,18 +727,6 @@ function Spark({ points }: { points: [number, number][] }) {
       <polyline points={draw} fill="none" />
       <circle cx={dx} cy={dy} r="3.4" />
     </svg>
-  );
-}
-
-/* board badges (results provenance, phrased for travellers) */
-function Tags({ search }: { search: { cached?: boolean; fetched_on: string } }) {
-  const kind = search.cached ? "Cached results" : "Live results";
-  const cls = search.cached ? "tag" : "tag live";
-  return (
-    <div className="board-tags">
-      <span className={cls}>{kind}</span>
-      <span className="tag dim">updated {search.fetched_on}</span>
-    </div>
   );
 }
 
@@ -576,8 +849,9 @@ function StayCard({ s, cur }: { s: StayOption; cur: string }) {
       </div>
     </div>
   );
-  return s.link ? (
-    <a href={s.link} target="_blank" rel="noreferrer">{body}</a>
+  const link = safeExternalHref(s.link);
+  return link ? (
+    <a href={link} target="_blank" rel="noreferrer">{body}</a>
   ) : body;
 }
 
@@ -606,6 +880,7 @@ function PackageCard({
 }) {
   const f = p.flight;
   const s = p.stay;
+  const stayLink = safeExternalHref(s.link);
   const money = (v: number) => `${cur}${Math.round(v).toLocaleString(loc)}`;
   return (
     <article className={`pkg-card ${p.tier}${p.within_budget ? "" : " over"}`}>
@@ -682,8 +957,8 @@ function PackageCard({
                 <span className="chip mini" key={a}>{a}</span>
               ))}
             </div>
-            {s.link ? (
-              <a className="pkg-link mini" href={s.link} target="_blank" rel="noreferrer">
+            {stayLink ? (
+              <a className="pkg-link mini" href={stayLink} target="_blank" rel="noreferrer">
                 View property ↗
               </a>
             ) : null}
@@ -1227,14 +1502,7 @@ export default function Home() {
           {/* ================= live stays ================= */}
           {panel === "stays" && (
             <div className="form-grid">
-              <Field cap="Destination" className="span6" aside={sh.q ? "hotels" : undefined}>
-                <input
-                  className="control display"
-                  value={sh.q}
-                  placeholder="Bali, Goa, Shimla —"
-                  onChange={(e) => patchSh({ q: e.target.value })}
-                />
-              </Field>
+              <StayField cap="Destination" value={sh.q} onPick={(d) => patchSh({ q: d })} />
 
               <Field cap="Check-in" className="span3">
                 <input
@@ -1329,16 +1597,8 @@ export default function Home() {
                 onPick={(a) => patchPk({ destination: a })}
               />
 
-              <Field cap="Stay near" className="span6"
-                aside={pk.q ? "hotels" : undefined}
-              >
-                <input
-                  className="control display"
-                  value={pk.q}
-                  placeholder="Goa, Bali, Shimla —"
-                  onChange={(e) => patchPk({ q: e.target.value })}
-                />
-              </Field>
+              <StayField cap="Stay near" value={pk.q} onPick={(d) => patchPk({ q: d })} />
+
               <Field cap="Total budget" className="span6"
                 aside={`${symbol("INR")} total`}
               >
@@ -1444,13 +1704,20 @@ export default function Home() {
               </div>
               {predictKind === "flights" ? (
                 <div className="form-grid">
-                  <Field cap="From" className="select span5">
-                    <Select
-                      value={flightPred.source_city}
-                      onChange={(v) => patchFlight({ source_city: v })}
-                      options={CITIES}
-                    />
-                  </Field>
+                  <AirportField
+                    cap="From"
+                    value={
+                      flightPred.source_city
+                        ? ({
+                            code: flightPred.source_city,
+                            name: flightPred.source_city,
+                            city: flightPred.source_city,
+                            country: "",
+                          } as AirportHit)
+                        : null
+                    }
+                    onPick={(a) => a && patchFlight({ source_city: a.city })}
+                  />
                   <button
                     className="swap"
                     onClick={swapCities}
@@ -1458,38 +1725,45 @@ export default function Home() {
                   >
                     ⇄
                   </button>
-                  <Field cap="To" className="select span5">
-                    <Select
-                      value={flightPred.destination_city}
-                      onChange={(v) => patchFlight({ destination_city: v })}
-                      options={CITIES}
-                    />
-                  </Field>
+                  <AirportField
+                    cap="To"
+                    value={
+                      flightPred.destination_city
+                        ? ({
+                            code: flightPred.destination_city,
+                            name: flightPred.destination_city,
+                            city: flightPred.destination_city,
+                            country: "",
+                          } as AirportHit)
+                        : null
+                    }
+                    onPick={(a) => a && patchFlight({ destination_city: a.city })}
+                  />
 
-                  <Field cap="Departs" className="select span4">
-                    <Select
-                      value={flightPred.departure_time}
-                      onChange={(v) => patchFlight({ departure_time: v })}
-                      options={
-                        flightOptions?.options.departure_time ?? [
-                          "Early_Morning", "Morning", "Afternoon", "Evening",
-                          "Night", "Late_Night",
-                        ]
-                      }
-                    />
-                  </Field>
-                  <Field cap="Lands" className="select span4">
-                    <Select
-                      value={flightPred.arrival_time}
-                      onChange={(v) => patchFlight({ arrival_time: v })}
-                      options={
-                        flightOptions?.options.arrival_time ?? [
-                          "Early_Morning", "Morning", "Afternoon", "Evening",
-                          "Night", "Late_Night",
-                        ]
-                      }
-                    />
-                  </Field>
+                  <ListSelect
+                    className="span4"
+                    cap="Departs"
+                    value={flightPred.departure_time}
+                    onChange={(v) => patchFlight({ departure_time: v })}
+                    options={
+                      flightOptions?.options.departure_time ?? [
+                        "Early_Morning", "Morning", "Afternoon", "Evening",
+                        "Night", "Late_Night",
+                      ]
+                    }
+                  />
+                  <ListSelect
+                    className="span4"
+                    cap="Lands"
+                    value={flightPred.arrival_time}
+                    onChange={(v) => patchFlight({ arrival_time: v })}
+                    options={
+                      flightOptions?.options.arrival_time ?? [
+                        "Early_Morning", "Morning", "Afternoon", "Evening",
+                        "Night", "Late_Night",
+                      ]
+                    }
+                  />
                   <Field cap="Stops" className="span4">
                     <Seg
                       value={flightPred.stops}
@@ -1498,18 +1772,18 @@ export default function Home() {
                     />
                   </Field>
 
-                  <Field cap="Airline" className="select span4">
-                    <Select
-                      value={flightPred.airline}
-                      onChange={(v) => patchFlight({ airline: v })}
-                      options={
-                        flightOptions?.options.airline ?? [
-                          "Vistara", "Air_India", "Indigo", "GO_FIRST",
-                          "SpiceJet", "AirAsia",
-                        ]
-                      }
-                    />
-                  </Field>
+                  <ListSelect
+                    className="span4"
+                    cap="Airline"
+                    value={flightPred.airline}
+                    onChange={(v) => patchFlight({ airline: v })}
+                    options={
+                      flightOptions?.options.airline ?? [
+                        "Vistara", "Air_India", "Indigo", "GO_FIRST",
+                        "SpiceJet", "AirAsia",
+                      ]
+                    }
+                  />
                   <Field cap="Cabin" className="span4">
                     <Seg
                       value={flightPred.class}
@@ -1583,31 +1857,31 @@ export default function Home() {
                 </div>
               ) : (
                 <div className="form-grid">
-                  <Field cap="Property" className="select span4">
-                    <Select
-                      value={stayPred.hotel}
-                      onChange={(v) => patchStay({ hotel: v })}
-                      options={stayOptions?.hotel ?? ["City Hotel", "Resort Hotel"]}
-                    />
-                  </Field>
-                  <Field cap="Month" className="select span4">
-                    <Select
-                      value={stayPred.arrival_date_month}
-                      onChange={(v) => patchStay({ arrival_date_month: v })}
-                      options={[
-                        "January", "February", "March", "April", "May", "June",
-                        "July", "August", "September", "October", "November",
-                        "December",
-                      ]}
-                    />
-                  </Field>
-                  <Field cap="Year" className="select span4">
-                    <Select
-                      value={String(stayPred.arrival_date_year)}
-                      onChange={(v) => patchStay({ arrival_date_year: +v })}
-                      options={["2015", "2016", "2017"]}
-                    />
-                  </Field>
+                  <ListSelect
+                    className="span4"
+                    cap="Property"
+                    value={stayPred.hotel}
+                    onChange={(v) => patchStay({ hotel: v })}
+                    options={stayOptions?.hotel ?? ["City Hotel", "Resort Hotel"]}
+                  />
+                  <ListSelect
+                    className="span4"
+                    cap="Month"
+                    value={stayPred.arrival_date_month}
+                    onChange={(v) => patchStay({ arrival_date_month: v })}
+                    options={[
+                      "January", "February", "March", "April", "May", "June",
+                      "July", "August", "September", "October", "November",
+                      "December",
+                    ]}
+                  />
+                  <ListSelect
+                    className="span4"
+                    cap="Year"
+                    value={String(stayPred.arrival_date_year)}
+                    onChange={(v) => patchStay({ arrival_date_year: +v })}
+                    options={["2015", "2016", "2017"]}
+                  />
 
                   <Field cap="Arrival week" className="count span4">
                     <Stepper
@@ -1683,7 +1957,6 @@ export default function Home() {
         {flight && !flightError && (
           <section className="board flash" key={`fl-${flight.fetched_on}-${flight.cached}`}>
             <div className="board-head">
-              <Tags search={flight} />
               {flightQuery && (
                 <SaveSearchButton
                   searchType="flight"
@@ -1720,11 +1993,7 @@ export default function Home() {
                 ))}
               </div>
             ))}
-            <div className="board-foot mini dim">
-              {flight.cached
-                ? "Results served from our cache — prices move quickly."
-                : "Live results — the freshest prices available."}
-            </div>
+
           </section>
         )}
       </div>
@@ -1740,7 +2009,6 @@ export default function Home() {
         {stay && !stayError && (
           <section className="board flash" key={`st-${stay.fetched_on}-${stay.cached}`}>
             <div className="board-head">
-              <Tags search={stay} />
               {stayQuery && (
                 <SaveSearchButton
                   searchType="hotel"
@@ -1757,11 +2025,7 @@ export default function Home() {
                 <StayCard s={s} cur={sCur} key={`${s.name}-${i}`} />
               ))}
             </div>
-            <div className="board-foot mini dim">
-              {stay.cached
-                ? "Results served from our cache — prices move quickly."
-                : "Live results — the freshest prices available."}
-            </div>
+
           </section>
         )}
       </div>
@@ -1800,16 +2064,7 @@ export default function Home() {
                   <div className="cap mini">stays in “{pkg.q}”</div>
                   <h2 className="pkg-title">Three ways to take this trip.</h2>
                 </div>
-                <div className="pkg-board-meta">
-                  <div>
-                    <div className="cap mini">Flight results</div>
-                    <Tags search={pkg.boards.flight} />
-                  </div>
-                  <div>
-                    <div className="cap mini">Stay results</div>
-                    <Tags search={pkg.boards.hotel} />
-                  </div>
-                </div>
+
               </div>
             </div>
             <div className="pkg-grid">
@@ -1825,11 +2080,7 @@ export default function Home() {
                 />
               ))}
             </div>
-            <div className="board-foot mini dim">
-              {pkg.boards.flight.cached && pkg.boards.hotel.cached
-                ? "Results served from our cache — prices move quickly."
-                : "Live results — the freshest prices available."}
-            </div>
+
           </section>
         )}
       </div>
@@ -1876,12 +2127,9 @@ export default function Home() {
 
       <footer className="footer">
         <span className="wordmark footer-mark">
-          VOVAGE<i>.</i>
+          Voyage<i>.</i>
         </span>
-        <span className="mini">
-          Prices are estimates, not offers — confirmed only at booking.
-        </span>
-        <span className="mini">© {new Date().getFullYear()} Vovage</span>
+        <span className="mini">© {new Date().getFullYear()} Voyage</span>
       </footer>
     </>
   );

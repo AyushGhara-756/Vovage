@@ -323,7 +323,7 @@
   top: calc(100% + 2px);
   left: -12px;
   right: -12px;
-  background: var(--bg-raised);
+  background: var(--bg);
   border: 1px solid var(--rule-strong);
   border-radius: 12px;
   box-shadow: var(--shadow-lg);

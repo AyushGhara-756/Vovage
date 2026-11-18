@@ -131,7 +131,7 @@ function SignInForm() {
       <BusyButton busy={busy} label="Sign In" busyLabel="Signing In…" />
 
       <p className="auth-swap">
-        New to Vovage? <Link href="/signup">Create an account</Link>
+        New to Voyage? <Link href="/signup">Create an account</Link>
       </p>
     </form>
   );

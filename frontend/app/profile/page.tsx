@@ -245,8 +245,7 @@ export default function ProfilePage() {
     setNotice(null);
     setUploading(true);
     try {
-      const url = await uploadAvatar(file);
-      const data = await updateAccount({ avatar_url: url });
+      const data = await uploadAvatar(file);
       applyAccount(data);
       flash("Avatar updated.");
     } catch (err) {
@@ -399,7 +398,7 @@ export default function ProfilePage() {
                 <input
                   ref={avatarInput}
                   type="file"
-                  accept="image/*"
+                  accept="image/png,image/jpeg,image/webp,image/gif"
                   hidden
                   onChange={onAvatarFile}
                 />

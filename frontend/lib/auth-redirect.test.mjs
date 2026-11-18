@@ -8,8 +8,8 @@ test("authCallbackUrl points at the callback and encodes next", () => {
     "http://localhost:3000/auth/callback?next=%2Fprofile",
   );
   assert.equal(
-    authCallbackUrl("https://vovage.example", "/profile?tab=saves"),
-    "https://vovage.example/auth/callback?next=%2Fprofile%3Ftab%3Dsaves",
+    authCallbackUrl("https://Voyage.example", "/profile?tab=saves"),
+    "https://Voyage.example/auth/callback?next=%2Fprofile%3Ftab%3Dsaves",
   );
 });
 

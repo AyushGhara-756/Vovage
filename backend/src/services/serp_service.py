@@ -21,6 +21,8 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+from ..security import reserve_serp_call
+
 # project root (backend/src/services -> up 3)
 ROOT = Path(__file__).resolve().parents[3]
 DATA_DIR = ROOT / "backend" / "data"
@@ -137,6 +139,7 @@ def run_search(kind, params, shape):
         cached["cached"] = True  # serve from disk, zero network cost
         return cached
 
+    reserve_serp_call()
     raw = _serp_request(kind, params)
     payload = shape(raw)
     payload["cached"] = False
