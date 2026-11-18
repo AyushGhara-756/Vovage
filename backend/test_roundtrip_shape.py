@@ -1,6 +1,7 @@
-# SerpApi round-trip options carry only outbound legs and are priced as full
-# round trips per traveller. Boards whose options lack prices (Google often
-# can't quote smaller/regional routes, e.g. BOM->PNQ) must not be priced.
+# SerpApi round-trip options carry only outbound legs and are priced as the
+# total for every passenger in the search (party total, NOT per traveller).
+# Boards whose options lack prices (Google often can't quote smaller/regional
+# routes, e.g. BOM->PNQ) must not be priced.
 # Run:  python backend/test_roundtrip_shape.py   (from the project root)
 import sys
 from pathlib import Path
@@ -47,14 +48,26 @@ except PackageError:
 else:
     raise AssertionError("unpriced board was priced as a round trip")
 
-# 3) packages: priced boards are honored — fare x travellers is transparent
-valid_board = {
+# 3) packages: a shaped option with price_per_traveller is honoured exactly
+per_traveller_board = {
     "currency": "INR",
-    "best": [{"price": 8000,
+    "best": [{"price": 16000, "price_per_traveller": 8000,
               "legs": [{"dep_code": "BOM"}, {"arr_code": "BOM"}]}],
     "others": [], "selected": [], "trip": {"origin": "BOM", "destination": "PNQ"},
 }
-out = build_packages(valid_board, hotel, 50000, nights=5, adults=2, children=0)
+out = build_packages(per_traveller_board, hotel, 50000, nights=5, adults=2, children=0)
+assert out["packages"][0]["breakdown"]["flight"] == 16000, out["packages"][0]
+assert out["fare_per_traveller"] == 8000, out
+
+# 4) packages: legacy boards without the split are divided by party size —
+#    the total must never be multiplied by travellers again
+legacy_board = {
+    "currency": "INR",
+    "best": [{"price": 16000,
+              "legs": [{"dep_code": "BOM"}, {"arr_code": "BOM"}]}],
+    "others": [], "selected": [], "trip": {"origin": "BOM", "destination": "PNQ"},
+}
+out = build_packages(legacy_board, hotel, 50000, nights=5, adults=2, children=0)
 assert out["packages"][0]["breakdown"]["flight"] == 16000, out["packages"][0]
 assert out["fare_per_traveller"] == 8000, out
 

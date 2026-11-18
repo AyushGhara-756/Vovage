@@ -742,9 +742,9 @@ const TICKER: string[][] = [
   ["Delhi", "Mumbai", "4,222", "Economy · 30 days out"],
   ["Bangalore", "Kolkata", "8,131", "Business cabin"],
   ["Chennai", "Hyderabad", "1,758", "Non-stop"],
-  ["Delhi", "Mumbai", "49,987", "Business · tomorrow"],
+  // ["Delhi", "Mumbai", "49,987", "Business · tomorrow"],
   ["Kolkata", "Bangalore", "6,060", "Direct"],
-  ["Hyderabad", "Delhi", "12,482", "One stop"],
+  // ["Hyderabad", "Delhi", "12,482", "One stop"],
 ];
 
 /* ---------------------------------------------------------------- flight board row */
@@ -787,8 +787,13 @@ function Itin({ o, cur, loc }: { o: FlightOption; cur: string; loc: string }) {
       <div className="itin-right">
         <span className="fare display">
           <i>{cur}</i>
-          {o.price != null ? o.price.toLocaleString(loc) : "—"}
+          {o.price != null
+            ? (o.price_per_traveller ?? o.price).toLocaleString(loc)
+            : "—"}
         </span>
+        {o.price_per_traveller != null && o.price_per_traveller !== o.price && (
+          <span className="mini dim">{cur}{o.price.toLocaleString(loc)} total</span>
+        )}
         {o.carbon != null && (
           <span className={`carbon mini ${o.carbon <= 0 ? "" : "over"}`}>
             carbon {o.carbon > 0 ? "+" : ""}
@@ -1111,11 +1116,7 @@ export default function Home() {
       setFlightNote("Please choose a departure date.");
       return;
     }
-    if (!fh.ret) {
-      setFlightNote("Please choose a return date.");
-      return;
-    }
-    if (fh.ret < fh.outbound) {
+    if (fh.ret && fh.ret < fh.outbound) {
       setFlightNote("The return date cannot be earlier than the departure date.");
       return;
     }
@@ -1123,7 +1124,7 @@ export default function Home() {
       origin: fh.origin.code,
       destination: fh.destination.code,
       outbound_date: fh.outbound,
-      return_date: fh.ret,
+      return_date: fh.ret || undefined,
       travel_class: fh.cabin,
       adults: fh.adults,
       children: fh.kids,
@@ -1427,7 +1428,7 @@ export default function Home() {
                   onChange={(e) => patchFh({ outbound: e.target.value })}
                 />
               </Field>
-              <Field cap="Return" className="span4">
+              <Field cap="Return · optional" className="span4">
                 <input
                   type="date"
                   value={fh.ret}
@@ -1961,20 +1962,20 @@ export default function Home() {
                 <SaveSearchButton
                   searchType="flight"
                   params={{ ...flightQuery }}
-                  defaultName={`${flightQuery.origin} → ${flightQuery.destination} · ${flightQuery.outbound_date} – ${flightQuery.return_date}`}
+                  defaultName={`${flightQuery.origin} → ${flightQuery.destination} · ${flightQuery.outbound_date}${flightQuery.return_date ? ` – ${flightQuery.return_date}` : " · one-way"}`}
                 />
               )}
               {flight.insights?.low == null ? null : (
                 <div className="board-grid">
                   <div>
-                    <div className="cap mini">Lowest fare · {flight.trip.outbound_date} – {flight.trip.return_date}</div>
+                    <div className="cap mini">Lowest fare · {flight.trip.outbound_date}{flight.trip.return_date ? ` – ${flight.trip.return_date}` : " · one-way"}</div>
                     <span style={{ display: "block" }}>
-                      <Money value={flight.insights.low} cur={fCur} locale={fLoc} />
+                      <Money value={flight.insights.low / (flight.travellers ?? 1)} cur={fCur} locale={fLoc} />
                     </span>
                     {flight.insights.range.length === 2 && (
                       <div className="mini dim" style={{ marginTop: 10 }}>
-                        typically {fCur}{flight.insights.range[0]}–{fCur}
-                        {flight.insights.range[1]} · demand {flight.insights.level}
+                        typically {fCur}{Math.round(flight.insights.range[0] / (flight.travellers ?? 1))}–{fCur}
+                        {Math.round(flight.insights.range[1] / (flight.travellers ?? 1))} · demand {flight.insights.level}
                       </div>
                     )}
                   </div>

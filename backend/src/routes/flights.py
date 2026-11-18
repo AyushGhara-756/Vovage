@@ -52,22 +52,24 @@ def airports():
 
 @flight_bp.route("/search", methods=["GET"])
 def search():
-    """Live Google Flights round-trip via SerpApi (cache-first)."""
+    """Live Google Flights search via SerpApi (cache-first).
+
+    With return_date: round trip. Without it: one-way."""
     args = request.args
     origin = (args.get("origin") or "").strip().upper()
     destination = (args.get("destination") or "").strip().upper()
     outbound = (args.get("outbound_date") or "").strip()
     return_date = (args.get("return_date") or "").strip()
 
-    if not (origin and destination and outbound and return_date):
+    if not (origin and destination and outbound):
         return jsonify({
-            "error": "origin, destination, outbound_date and return_date are required",
+            "error": "origin, destination and outbound_date are required",
         }), 400
     if origin == destination:
         return jsonify({"error": "origin and destination must differ"}), 400
-    if not (_DATE.match(outbound) and _DATE.match(return_date)):
+    if not _DATE.match(outbound) or (return_date and not _DATE.match(return_date)):
         return jsonify({"error": "dates must be YYYY-MM-DD"}), 400
-    if return_date < outbound:
+    if return_date and return_date < outbound:
         return jsonify({"error": "return_date cannot precede outbound_date"}), 400
 
     cabin = (args.get("travel_class") or "economy").strip().lower()
@@ -85,18 +87,30 @@ def search():
         "hl": "en",
         "gl": "in",
         "currency": "INR",
-        "type": 1,  # round trip
+        "type": 1 if return_date else 2,  # round trip vs one-way
         "departure_id": origin,
         "arrival_id": destination,
         "outbound_date": outbound,
-        "return_date": return_date,
         "travel_class": _CLASS_ID[cabin],
         "adults": adults,
         "children": children,
     }
+    if return_date:
+        params["return_date"] = return_date
 
     try:
         payload = serp_service.run_search("flight", params, shape_flight)
     except SerpError as e:
         return jsonify({"error": str(e)}), 502
+
+    # SerpApi's option price is the total for every passenger in the search.
+    # Boards display a per-traveller fare, so attach the split alongside the
+    # true total and record the party size the prices were computed for.
+    travellers = adults + children
+    payload["travellers"] = travellers
+    for board in ("departures", "returns", "selected", "best", "others"):
+        for opt in payload.get(board) or []:
+            if opt.get("price") is not None:
+                opt["price_per_traveller"] = round(opt["price"] / travellers, 2)
+
     return jsonify(payload)

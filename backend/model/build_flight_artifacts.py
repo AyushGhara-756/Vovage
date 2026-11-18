@@ -42,13 +42,12 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from Flights import FlightNetwork  # noqa: E402
 
-model = FlightNetwork()
+model = FlightNetwork(WEIGHTS)
 model.load_state_dict(torch.load(WEIGHTS, map_location="cpu"))
 model.eval()
 
-Xte = torch.tensor(np.asarray(X_test_s, dtype=np.float32), dtype=torch.float32)
-with torch.no_grad():
-    pred = model(Xte).squeeze(1).numpy()
+Xte = np.asarray(X_test_s, dtype=np.float32)
+pred = model.predict(Xte)
 
 true = y_test.to_numpy()
 print(f"[check] features: {X.shape[1]} | params: {sum(p.numel() for p in model.parameters()):,}")

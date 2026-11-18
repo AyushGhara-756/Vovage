@@ -34,9 +34,12 @@ def check(name, cond, extra=""):
         fails.append(name)
 
 
-def fare(price, name="IndiGo"):
+def fare(price_per_traveller, name="IndiGo", travellers=2):
+    """Shaped option: SerpApi price is the party total; boards shaped by the
+    flight route also carry the pre-split per-traveller fare."""
     return {
-        "price": price,
+        "price": price_per_traveller * travellers,
+        "price_per_traveller": price_per_traveller,
         "legs": [{"dep_code": "DEL", "dep_time": "2026-11-18 08:45",
                   "arr_code": "GOI", "arr_time": "2026-11-18 11:10",
                   "airline": name, "logo": "", "duration": 145}],

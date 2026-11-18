@@ -1,6 +1,7 @@
-from ...model.Flights import load_artifacts, predict_price
-import torch
-from pathlib import Path
+try:
+    from ...model.Flights import load_artifacts, predict_price
+except ImportError:  # service-root layout: backend/ sits on sys.path
+    from model.Flights import load_artifacts, predict_price
 
 REQUIRED = [
     "airline", "source_city", "departure_time", "stops", "arrival_time",
@@ -10,9 +11,7 @@ REQUIRED = [
 
 class FlightService:
     def __init__(self):
-        self.device = torch.device("cpu")
         self.model, self.scaler, self.meta = load_artifacts()
-        self.model.to(self.device)
 
     def predict(self, rows):
         """rows: list of raw search dicts (or a single dict)."""

@@ -8,8 +8,9 @@ Ground rules of the logic:
   ``serp_service.run_search`` already fetched or replayed, and computes
   package tiers from those. Every tier therefore costs zero additional
   SerpApi calls.
-- Flight cost = cheapest round-trip fare × travellers. SerpApi fares are
-  quoted per traveller, so the whole party's fare is fare × adults+children.
+- Flight cost = per-traveller fare × travellers. SerpApi's option price is
+  the total for the whole party; the fare is either pre-split per traveller
+  by the flight route or divided by adults+children here.
 - Hotel cost = the board's whole-stay rate for the exact dates. When a
   property only exposes a per-night rate, it's nights × rate — labelled
   honestly.
@@ -26,8 +27,10 @@ class PackageError(Exception):
 
 def _fares(flight):
     """Round-trip fare candidates, cheapest-first board order.
-    SerpApi prices are per traveller; unpriced options (Google often can't
-    quote smaller/regional routes) are not bookable and are skipped."""
+    SerpApi prices are the total for the whole party (see shape_flight);
+    options carrying ``price_per_traveller`` have already been split.
+    Unpriced options (Google often can't quote smaller/regional routes)
+    are not bookable and are skipped."""
     for key in ("selected", "best", "others"):
         fares = [o for o in (flight.get(key) or []) if o.get("price")]
         if fares:
@@ -122,7 +125,10 @@ def build_packages(flight, hotel, budget, *, nights, adults=2, children=0):
 
     travellers = adults + children
     fare = _cheapest_fare(flight)
-    flight_cost = fare["price"] * travellers
+    # prefer the pre-split per-traveller fare; fall back to dividing the
+    # party total for boards shaped before the split existed
+    per_traveller = fare.get("price_per_traveller") or fare["price"] / travellers
+    flight_cost = per_traveller * travellers
     candidates = _stay_options(hotel, nights)
 
     cheapest_stay = min(candidates, key=lambda t: t[1])
@@ -153,6 +159,6 @@ def build_packages(flight, hotel, budget, *, nights, adults=2, children=0):
                   "travellers": travellers},
         "q": hotel.get("q"),
         "trip": flight.get("trip"),
-        "fare_per_traveller": fare["price"],
+        "fare_per_traveller": round(per_traveller, 2),
         "packages": packages,
     }

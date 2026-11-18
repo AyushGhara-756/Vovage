@@ -1,0 +1,10 @@
+# Keep the uploaded project small — Vercel uploads everything not ignored.
+venv/
+output/
+docs/
+backend/notebooks/
+backend/data/serp_cache/
+backend/src/routes/__pycache__/
+backend/__pycache__/
+frontend/node_modules/
+frontend/.next/

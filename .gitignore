@@ -13,4 +13,4 @@ test.py
 /statistics.csv
 /*.log
 /backend.pid
-/backend/data
+/backend/data/serp*
