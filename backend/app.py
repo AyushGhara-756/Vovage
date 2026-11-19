@@ -33,7 +33,7 @@ FRONTEND_ORIGINS = [
 ]
 CORS(
     app,
-    resources={r"/api/account/*": {"origins": FRONTEND_ORIGINS}},
+    resources={r"/api/*": {"origins": FRONTEND_ORIGINS}},
     supports_credentials=False,
     allow_headers=["Authorization", "Content-Type"],
     methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],

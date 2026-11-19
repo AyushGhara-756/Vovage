@@ -1,4 +1,4 @@
-const BASE = "/api";
+const BASE = (typeof process !== "undefined" && process.env.NEXT_PUBLIC_API_URL) || "/api";
 
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${BASE}${path}`, { cache: "no-store" });
