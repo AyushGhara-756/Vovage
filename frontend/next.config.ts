@@ -29,10 +29,13 @@ if (isProduction && !supabaseOrigin.startsWith("https://")) {
 }
 
 const supabaseWsOrigin = supabaseOrigin.replace(/^https:/, "wss:");
+const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+const apiOrigin = apiUrl ? new URL(apiUrl).origin : "";
 const scriptSrc = ["'self'", "'unsafe-inline'"]
   .concat(isProduction ? [] : ["'unsafe-eval'"])
   .join(" ");
-const connectSrc = ["'self'", supabaseOrigin, supabaseWsOrigin]
+const connectSrc = ["'self'", supabaseOrigin, supabaseWsOrigin, apiOrigin]
+  .filter(Boolean)
   .concat(isProduction ? [] : ["ws:", "wss:"])
   .join(" ");
 const contentSecurityPolicy = [
