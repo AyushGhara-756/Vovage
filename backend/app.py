@@ -64,7 +64,13 @@ def _redirect_root_api_paths():
     elif path == "/account/me":
         target = "/api/account/me"
     if target:
-        return redirect(target + ("?" + qs if qs else ""), code=308)
+        resp = redirect(target + ("?" + qs if qs else ""), code=308)
+        origin = request.headers.get("Origin", "")
+        if origin in FRONTEND_ORIGINS:
+            resp.headers["Access-Control-Allow-Origin"] = origin
+            resp.headers["Access-Control-Allow-Methods"] = "GET, POST, PATCH, DELETE, OPTIONS"
+            resp.headers["Access-Control-Allow-Headers"] = "Authorization, Content-Type"
+        return resp
 
 app.register_blueprint(flight_bp)
 app.register_blueprint(hotels_bp)
