@@ -87,14 +87,21 @@ const nextConfig: NextConfig = {
     ];
   },
   async rewrites() {
-    // Same-origin proxy: the Flask prediction API on :6050.
-    // Dev-only — on Vercel, /api/* is routed to the backend service by the
-    // platform before it ever reaches the Next.js app.
-    if (process.env.NODE_ENV === "production") return [];
+    // Dev: proxy to local Flask on :6050.
+    if (process.env.NODE_ENV !== "production") {
+      return [
+        {
+          source: "/api/:path*",
+          destination: "http://127.0.0.1:6050/api/:path*",
+        },
+      ];
+    }
+    // Production: proxy /api/* to the deployed backend so the browser only
+    // hits same-origin (avoids CSP connect-src blocks without env vars).
     return [
       {
         source: "/api/:path*",
-        destination: "http://127.0.0.1:6050/api/:path*",
+        destination: "https://vovage-plum.vercel.app/api/:path*",
       },
     ];
   },
