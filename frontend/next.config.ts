@@ -34,8 +34,7 @@ const apiOrigin = apiUrl ? new URL(apiUrl).origin : "";
 const scriptSrc = ["'self'", "'unsafe-inline'"]
   .concat(isProduction ? [] : ["'unsafe-eval'"])
   .join(" ");
-const connectSrc = ["'self'", supabaseOrigin, supabaseWsOrigin, apiOrigin]
-  .filter(Boolean)
+const connectSrc = ["'self'", supabaseOrigin, supabaseWsOrigin]
   .concat(isProduction ? [] : ["ws:", "wss:"])
   .join(" ");
 const contentSecurityPolicy = [
@@ -68,11 +67,11 @@ const securityHeaders = [
 ].concat(
   isProduction
     ? [
-        {
-          key: "Strict-Transport-Security",
-          value: "max-age=63072000; includeSubDomains; preload",
-        },
-      ]
+      {
+        key: "Strict-Transport-Security",
+        value: "max-age=63072000; includeSubDomains; preload",
+      },
+    ]
     : [],
 );
 
@@ -88,22 +87,16 @@ const nextConfig: NextConfig = {
   },
   async rewrites() {
     // Dev: proxy to local Flask on :6050.
-    if (process.env.NODE_ENV !== "production") {
-      return [
-        {
-          source: "/api/:path*",
-          destination: "http://127.0.0.1:6050/api/:path*",
-        },
-      ];
-    }
-    // Production: proxy /api/* to the deployed backend so the browser only
-    // hits same-origin (avoids CSP connect-src blocks without env vars).
+    if (process.env.NODE_ENV === "production") return [];
     return [
       {
         source: "/api/:path*",
-        destination: "https://vovage-plum.vercel.app/api/:path*",
+        destination: "http://127.0.0.1:6050/api/:path*",
       },
     ];
+    // Production: proxy /api/* to the deployed backend so the browser only
+    // hits same-origin (avoids CSP connect-src blocks without env vars).
+
   },
 };
 

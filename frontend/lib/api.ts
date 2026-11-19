@@ -1,4 +1,5 @@
-const BASE = (typeof process !== "undefined" && process.env.NEXT_PUBLIC_API_URL) || "https://vovage-plum.vercel.app/api";
+// const BASE = (typeof process !== "undefined" && process.env.NEXT_PUBLIC_API_URL) || "https://vovage-plum.vercel.app/api";
+const BASE = "/api";
 
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${BASE}${path}`, { cache: "no-store" });
