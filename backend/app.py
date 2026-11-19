@@ -39,6 +39,33 @@ CORS(
     methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
 )
 
+@app.before_request
+def _redirect_root_api_paths():
+    from flask import request, redirect
+    path = request.path.rstrip("/")
+    qs = request.query_string.decode()
+    target = None
+    if path == "/flight/options":
+        target = "/api/flight/options"
+    elif path == "/flight/predict":
+        target = "/api/flight/predict"
+    elif path == "/flight/airports":
+        target = "/api/flight/airports"
+    elif path == "/flight/search":
+        target = "/api/flight/search"
+    elif path == "/hotel/options":
+        target = "/api/hotel/options"
+    elif path == "/hotel/predict":
+        target = "/api/hotel/predict"
+    elif path == "/hotel/search":
+        target = "/api/hotel/search"
+    elif path == "/package/search":
+        target = "/api/package/search"
+    elif path == "/account/me":
+        target = "/api/account/me"
+    if target:
+        return redirect(target + ("?" + qs if qs else ""), code=308)
+
 app.register_blueprint(flight_bp)
 app.register_blueprint(hotels_bp)
 app.register_blueprint(package_bp)
