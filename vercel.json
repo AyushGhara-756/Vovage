@@ -11,6 +11,17 @@
       "framework": "nextjs"
     }
   },
+  "redirects": [
+    { "source": "/flight/options", "destination": "/api/flight/options", "statusCode": 308 },
+    { "source": "/flight/predict", "destination": "/api/flight/predict", "statusCode": 308 },
+    { "source": "/flight/airports", "destination": "/api/flight/airports", "statusCode": 308 },
+    { "source": "/flight/search", "destination": "/api/flight/search", "statusCode": 308 },
+    { "source": "/hotel/options", "destination": "/api/hotel/options", "statusCode": 308 },
+    { "source": "/hotel/predict", "destination": "/api/hotel/predict", "statusCode": 308 },
+    { "source": "/hotel/search", "destination": "/api/hotel/search", "statusCode": 308 },
+    { "source": "/package/search", "destination": "/api/package/search", "statusCode": 308 },
+    { "source": "/account/me", "destination": "/api/account/me", "statusCode": 308 }
+  ],
   "rewrites": [
     { "source": "/api/(.*)", "destination": { "service": "api" } },
     { "source": "/(.*)", "destination": { "service": "frontend" } }
