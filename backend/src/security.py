@@ -14,9 +14,13 @@ import time
 from collections import defaultdict, deque
 from pathlib import Path
 
-USAGE_FILE = (
-    Path(__file__).resolve().parents[2] / "backend" / "data" / "serp_usage.json"
+_BACKEND_DIR = Path(__file__).resolve().parents[1]
+_DATA_DIR = (
+    _BACKEND_DIR / "data"
+    if (_BACKEND_DIR / "data").exists()
+    else _BACKEND_DIR.parent / "backend" / "data"
 )
+USAGE_FILE = _DATA_DIR / "serp_usage.json"
 
 
 class QuotaError(Exception):

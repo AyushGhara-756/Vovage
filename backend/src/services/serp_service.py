@@ -23,9 +23,14 @@ from pathlib import Path
 
 from ..security import reserve_serp_call
 
-# project root (backend/src/services -> up 3)
-ROOT = Path(__file__).resolve().parents[3]
-DATA_DIR = ROOT / "backend" / "data"
+# backend root is 2 levels up: backend/src/services -> backend (or /var/task on Vercel)
+BACKEND_DIR = Path(__file__).resolve().parents[2]
+if (BACKEND_DIR / "data").exists():
+    DATA_DIR = BACKEND_DIR / "data"
+    ROOT = BACKEND_DIR.parent
+else:
+    ROOT = BACKEND_DIR
+    DATA_DIR = ROOT / "backend" / "data"
 
 CACHE_DIR = DATA_DIR / "serp_cache"
 IATA_FILE = DATA_DIR / "iata-airport_codes.json"
